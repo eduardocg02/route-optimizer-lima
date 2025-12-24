@@ -481,6 +481,7 @@ def batch_update_client_details(clients: list[dict]) -> int:
     """
     Batch update multiple clients' details.
     Only updates: name, company, phone, address, district, city.
+    Compares with existing data first to avoid unnecessary writes.
     
     Args:
         clients: List of client dicts with bsale_id and fields to update
@@ -492,12 +493,11 @@ def batch_update_client_details(clients: list[dict]) -> int:
     if not worksheet:
         return 0
     
-    # Fields we're allowed to update (preserve maps_link, verified, etc.)
-    allowed_fields = ["name", "company", "phone", "address", "district", "city"]
     column_map = {col: idx + 1 for idx, col in enumerate(SHEET_COLUMNS)}
     
     try:
-        # Get all existing data to compare
+        # Get all existing data to compare (1 read request)
+        print("  Fetching existing data for comparison...")
         all_records = worksheet.get_all_records()
         existing_map = {}
         for idx, record in enumerate(all_records):
@@ -533,25 +533,30 @@ def batch_update_client_details(clients: list[dict]) -> int:
                 "city": client.get("city", "")
             }
             
-            needs_update = False
+            client_needs_update = False
             for field, new_value in field_values.items():
                 old_value = str(existing_data.get(field, ""))
                 if str(new_value) != old_value:
-                    needs_update = True
+                    client_needs_update = True
                     col_num = column_map[field]
                     cells_to_update.append({
                         "range": f"{chr(64 + col_num)}{row_num}",
                         "values": [[str(new_value)]]
                     })
             
-            if needs_update:
+            if client_needs_update:
                 updated += 1
         
-        # Batch update all cells
+        print(f"  Found {updated} clients with changes ({len(cells_to_update)} cells to update)")
+        
+        # If nothing changed, skip the write entirely
+        if not cells_to_update:
+            return 0
+        
+        # Use gspread's batch_update for a single API call
+        # Format: list of dicts with 'range' and 'values' keys
         if cells_to_update:
-            # gspread batch update
-            for cell in cells_to_update:
-                worksheet.update(cell["range"], cell["values"])
+            worksheet.batch_update(cells_to_update)
         
         return updated
     
