@@ -170,6 +170,74 @@ def generate_google_maps_url(origin, destination, ordered_waypoints):
     return base_url + "/".join(path_parts)
 
 
+def generate_split_routes(origin, destination, ordered_waypoints, max_waypoints_per_route=8):
+    """
+    Split a route into multiple Google Maps URLs if there are too many waypoints.
+    Google Maps supports max 10 points total (origin + waypoints + destination).
+    We use 8 waypoints per route to leave room for origin/destination.
+    
+    Returns a list of route parts, each with:
+    - url: Google Maps URL
+    - start: Starting point coords
+    - end: Ending point coords  
+    - waypoints: List of waypoint coords for this part
+    - part_number: 1-indexed part number
+    - total_parts: Total number of parts
+    """
+    total_waypoints = len(ordered_waypoints)
+    
+    # If 8 or fewer waypoints, single route is fine
+    if total_waypoints <= max_waypoints_per_route:
+        return [{
+            "url": generate_google_maps_url(origin, destination, ordered_waypoints),
+            "start": origin,
+            "end": destination,
+            "waypoints": ordered_waypoints,
+            "part_number": 1,
+            "total_parts": 1
+        }]
+    
+    # Split into multiple routes
+    routes = []
+    remaining_waypoints = ordered_waypoints.copy()
+    current_start = origin
+    part_number = 1
+    
+    # Calculate total parts needed
+    total_parts = (total_waypoints + max_waypoints_per_route - 1) // max_waypoints_per_route
+    
+    while remaining_waypoints:
+        # Take up to max_waypoints_per_route waypoints
+        chunk = remaining_waypoints[:max_waypoints_per_route]
+        remaining_waypoints = remaining_waypoints[max_waypoints_per_route:]
+        
+        # Determine the end point for this chunk
+        if remaining_waypoints:
+            # Not the last chunk - end at the last waypoint of this chunk
+            # The next route will start from here
+            chunk_end = chunk[-1]
+            chunk_waypoints = chunk[:-1]  # All except the last one (which is the destination)
+        else:
+            # Last chunk - end at final destination
+            chunk_end = destination
+            chunk_waypoints = chunk
+        
+        routes.append({
+            "url": generate_google_maps_url(current_start, chunk_end, chunk_waypoints),
+            "start": current_start,
+            "end": chunk_end,
+            "waypoints": chunk_waypoints,
+            "part_number": part_number,
+            "total_parts": total_parts
+        })
+        
+        # Next route starts where this one ended
+        current_start = chunk_end
+        part_number += 1
+    
+    return routes
+
+
 def reverse_geocode(coords: tuple[float, float]) -> str:
     """Convert coordinates to a readable address using Google Geocoding API."""
     if not GOOGLE_API_KEY:
@@ -216,8 +284,16 @@ def geocode_address(address: str, city: str = "", district: str = "") -> tuple[f
     if not GOOGLE_API_KEY:
         return None
     
+    # Clean address: remove apartment/office info that confuses geocoding
+    # Common patterns: "Dpto 301", "Dpto/Oficina 301", "Oficina 502", "Dept. 101", "Int. 5"
+    import re
+    clean_address = address
+    # Remove apartment/office patterns
+    clean_address = re.sub(r',?\s*(Dpto\.?|Departamento|Oficina|Dpto/Oficina|Dept\.?|Int\.?|Piso|Torre)\s*[A-Za-z0-9\-]+', '', clean_address, flags=re.IGNORECASE)
+    clean_address = clean_address.strip().rstrip(',').strip()
+    
     # Build full address string with district for accuracy (e.g., "San Isidro", "Miraflores")
-    full_address = address
+    full_address = clean_address
     if district:
         full_address += f", {district}"
     if city:
@@ -373,9 +449,29 @@ def fetch_bsale_clients_from_api() -> list[dict]:
 
 
 def preload_clients():
-    """Load clients from file first, then refresh from API in background."""
+    """
+    Load clients for the fallback Bsale cache system.
+    
+    Data Source Priority:
+    1. Google Sheets (if configured) - Source of truth with verified addresses
+    2. Bsale JSON cache (clients_cache.json) - Fallback when Sheets not available
+    
+    This function handles the Bsale cache fallback.
+    """
     global CLIENTS_CACHE
     
+    # Check if Google Sheets is available first
+    try:
+        from sheets import get_all_clients
+        sheets_clients = get_all_clients()
+        if sheets_clients:
+            print(f"Google Sheets configured with {len(sheets_clients)} clients - using as primary source")
+            # Don't need to load Bsale cache if Sheets is working
+            return
+    except Exception as e:
+        print(f"Google Sheets not available: {e} - using Bsale cache fallback")
+    
+    # Fall back to Bsale cache
     # First, load from local file (instant)
     cached_clients = load_clients_from_file()
     
@@ -397,6 +493,8 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MiuRuta - Optimizador de Rutas</title>
+    <link rel="icon" type="image/png" href="/static/miushop-logo.png">
+    <link rel="apple-touch-icon" href="/static/miushop-logo.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -770,6 +868,34 @@ HTML_TEMPLATE = """
             transform: translateY(-1px);
         }
         
+        .btn-primary:disabled {
+            background: linear-gradient(135deg, #ccc, #ddd);
+            color: #999;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+        
+        .btn-primary:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .unverified-warning {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-top: 12px;
+            padding: 10px 16px;
+            background: rgba(255, 152, 0, 0.1);
+            border: 1px solid rgba(255, 152, 0, 0.3);
+            border-radius: 10px;
+            color: #e65100;
+            font-size: 0.85rem;
+            text-align: center;
+        }
+        
         .btn-secondary {
             background: white;
             color: var(--accent-primary);
@@ -790,6 +916,34 @@ HTML_TEMPLATE = """
         .btn-maps:hover {
             transform: translateY(-3px);
             box-shadow: 0 8px 40px rgba(66, 133, 244, 0.4);
+        }
+        
+        /* Route parts for multi-route */
+        .route-parts-notice {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: rgba(66, 133, 244, 0.1);
+            border: 1px solid rgba(66, 133, 244, 0.2);
+            border-radius: 12px;
+            color: #1a73e8;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+        }
+        
+        .route-parts-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        .route-part-btn {
+            flex: 1;
+            min-width: 140px;
+            max-width: 200px;
         }
         
         /* Results */
@@ -1083,8 +1237,14 @@ HTML_TEMPLATE = """
             border-bottom: none;
         }
         
-        .client-option:hover {
+        .client-option:hover,
+        .client-option.highlighted {
             background: var(--bg-hover);
+        }
+        
+        .client-option.highlighted {
+            outline: 2px solid var(--accent-primary);
+            outline-offset: -2px;
         }
         
         .client-option.selected {
@@ -1111,37 +1271,518 @@ HTML_TEMPLATE = """
         
         .selected-clients {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 8px;
             margin-top: 12px;
+        }
+        
+        .selected-clients:empty {
+            display: none;
         }
         
         .client-tag {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 14px;
-            background: linear-gradient(135deg, rgba(244, 143, 177, 0.2), rgba(233, 30, 99, 0.1));
-            border: 1px solid rgba(233, 30, 99, 0.25);
-            border-radius: 20px;
-            font-size: 0.85rem;
+            gap: 6px;
+            padding: 10px 14px;
+            background: white;
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            font-size: 0.9rem;
             color: var(--text-primary);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        
+        .client-tag-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .client-tag-name {
+            font-weight: 500;
+        }
+        
+        .client-tag-address {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .client-tag-phone {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        
+        .client-tag-phone a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+        
+        .client-tag-phone a:hover {
+            color: var(--accent-primary);
+            text-decoration: underline;
+        }
+        
+        .client-tag-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .client-tag-status.verified {
+            background: #4caf50;
+        }
+        
+        .client-tag-status.unverified {
+            background: #ff9800;
+        }
+        
+        .client-tag-actions {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            margin-left: 4px;
+            padding-left: 8px;
+            border-left: 1px solid var(--border-subtle);
+        }
+        
+        .client-tag-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.15s;
+        }
+        
+        .client-tag-btn:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-default);
+            transform: scale(1.05);
+        }
+        
+        .client-tag-btn.maps-btn:hover {
+            background: rgba(66, 133, 244, 0.1);
+            border-color: rgba(66, 133, 244, 0.3);
+        }
+        
+        .client-tag-btn.verify-btn {
+            background: rgba(76, 175, 80, 0.1);
+            border-color: rgba(76, 175, 80, 0.2);
+            color: #2e7d32;
+        }
+        
+        .client-tag-btn.verify-btn:hover {
+            background: rgba(76, 175, 80, 0.2);
+            border-color: rgba(76, 175, 80, 0.4);
+        }
+        
+        .client-tag-btn.verify-btn.confirming {
+            background: #4caf50;
+            border-color: #4caf50;
+            color: white;
+            animation: pulse-green 0.8s infinite;
+        }
+        
+        @keyframes pulse-green {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(76, 175, 80, 0); }
+        }
+        
+        .client-tag-btn.fix-btn {
+            background: rgba(255, 152, 0, 0.1);
+            border-color: rgba(255, 152, 0, 0.2);
+            color: #e65100;
+        }
+        
+        .client-tag-btn.fix-btn:hover {
+            background: rgba(255, 152, 0, 0.2);
+            border-color: rgba(255, 152, 0, 0.4);
         }
         
         .client-tag-remove {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
             background: none;
             border: none;
-            color: var(--accent-primary);
+            color: var(--text-muted);
             cursor: pointer;
-            font-size: 1rem;
+            font-size: 1.2rem;
             line-height: 1;
-            padding: 0;
-            opacity: 0.7;
-            transition: opacity 0.15s;
+            border-radius: 4px;
+            opacity: 0.4;
+            transition: all 0.15s;
+            margin-left: 8px;
         }
         
         .client-tag-remove:hover {
             opacity: 1;
+            color: var(--accent-error);
+        }
+        
+        /* Verification status - green border for verified */
+        .client-tag.verified {
+            border-color: rgba(76, 175, 80, 0.4);
+            border-left: 3px solid #4caf50;
+        }
+        
+        .client-tag.unverified {
+            border-color: rgba(255, 152, 0, 0.4);
+            border-left: 3px solid #ff9800;
+        }
+        
+        /* Compact verification badge for dropdown */
+        .verification-badge {
+            font-size: 0.65rem;
+            padding: 2px 5px;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+        
+        .verification-badge.verified {
+            background: rgba(76, 175, 80, 0.15);
+            color: #2e7d32;
+        }
+        
+        .verification-badge.unverified {
+            background: rgba(255, 152, 0, 0.15);
+            color: #e65100;
+        }
+        
+        /* Info tooltip */
+        .info-tooltip {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-default);
+            border-radius: 50%;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            cursor: help;
+            margin-left: 8px;
+        }
+        
+        .info-tooltip-content {
+            position: absolute;
+            bottom: calc(100% + 10px);
+            left: 50%;
+            transform: translateX(-50%);
+            width: 320px;
+            padding: 16px;
+            background: white;
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+            z-index: 100;
+        }
+        
+        .info-tooltip-content::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 8px solid transparent;
+            border-top-color: white;
+        }
+        
+        .info-tooltip:hover .info-tooltip-content {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .info-tooltip-content h4 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        
+        .info-tooltip-content ul {
+            margin: 8px 0;
+            padding-left: 16px;
+        }
+        
+        .info-tooltip-content li {
+            margin: 4px 0;
+        }
+        
+        .info-tooltip-content .badge-demo {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .info-tooltip-content .badge-demo.green {
+            background: rgba(76, 175, 80, 0.15);
+            color: #2e7d32;
+        }
+        
+        .info-tooltip-content .badge-demo.orange {
+            background: rgba(255, 152, 0, 0.15);
+            color: #e65100;
+        }
+        
+        /* Client verification actions - simplified */
+        .client-actions {
+            display: none;
+        }
+        
+        .client-action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            opacity: 0.7;
+            transition: all 0.15s;
+        }
+        
+        .client-action-btn:hover {
+            opacity: 1;
+            background: rgba(233, 30, 99, 0.1);
+        }
+        
+        .client-action-btn.verify-btn:hover {
+            background: rgba(76, 175, 80, 0.15);
+        }
+        
+        .client-action-btn.fix-btn:hover {
+            background: rgba(255, 152, 0, 0.15);
+        }
+        
+        /* Verify confirmation popup */
+        .verify-popup-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1001;
+            animation: fadeIn 0.15s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .verify-popup {
+            background: white;
+            border-radius: 20px;
+            padding: 28px;
+            max-width: 360px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            animation: slideUp 0.2s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .verify-popup-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #4caf50, #81c784);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 1.5rem;
+            color: white;
+        }
+        
+        .verify-popup h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+        
+        .verify-popup p {
+            margin: 4px 0;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+        
+        .verify-popup-note {
+            margin-top: 12px !important;
+            font-size: 0.85rem !important;
+            color: var(--text-muted) !important;
+            line-height: 1.4;
+        }
+        
+        .verify-popup-hint {
+            font-size: 0.8rem !important;
+            color: var(--text-muted) !important;
+            font-style: italic;
+            margin-top: 8px !important;
+        }
+        
+        .verify-popup-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .verify-popup-btn {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-weight: 500;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .verify-popup-btn.cancel {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
+        }
+        
+        .verify-popup-btn.cancel:hover {
+            background: var(--bg-hover);
+        }
+        
+        .verify-popup-btn.confirm {
+            background: linear-gradient(135deg, #4caf50, #66bb6a);
+            border: none;
+            color: white;
+        }
+        
+        .verify-popup-btn.confirm:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+        
+        /* Fix address modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+        }
+        
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 28px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+        }
+        
+        .modal-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+        
+        .modal-body {
+            margin-bottom: 20px;
+        }
+        
+        .modal-body p {
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        
+        .modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid var(--border-default);
+            border-radius: 12px;
+            font-size: 0.95rem;
+        }
+        
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 4px var(--glow-primary);
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+        
+        .modal-btn {
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .modal-btn-cancel {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
+        }
+        
+        .modal-btn-cancel:hover {
+            background: var(--bg-hover);
+        }
+        
+        .modal-btn-save {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border: none;
+            color: white;
+        }
+        
+        .modal-btn-save:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.3);
         }
         
         .no-clients {
@@ -1254,7 +1895,7 @@ HTML_TEMPLATE = """
                 <div class="logo-icon">🐱</div>
                 <span class="logo-text">MiuRuta</span>
             </div>
-            <p class="tagline">Optimiza las rutas de entrega de Adoptamiu 🐾 Selecciona clientes de Bsale o pega links de Google Maps para obtener el orden más eficiente.</p>
+            <p class="tagline">Crea tu ruta de entregas 🐾 <span style="color: var(--text-muted); font-size: 0.9em;">Recuerda verificar las direcciones para mayor precisión</span></p>
         </header>
         
         <main id="form-section">
@@ -1290,20 +1931,33 @@ HTML_TEMPLATE = """
             <div class="card card-bsale">
                 <div class="card-header">
                     <div class="card-icon">👥</div>
-                    <span class="card-title">Clientes de Bsale</span>
-                    <button type="button" class="refresh-btn" id="refresh-clients-btn" onclick="refreshClients()" title="Actualizar clientes">
-                        <span class="refresh-icon">🔄</span>
+                    <span class="card-title">Clientes</span>
+                    <span class="info-tooltip">?
+                        <div class="info-tooltip-content">
+                            <h4>Sistema de Verificación</h4>
+                            <p>Las direcciones de clientes se geocodifican automáticamente pero pueden tener errores.</p>
+                            <ul>
+                                <li><span class="badge-demo green">●</span> <strong>Verificado</strong> - Dirección confirmada</li>
+                                <li><span class="badge-demo orange">●</span> <strong>Sin verificar</strong> - Requiere revisión</li>
+                            </ul>
+                            <p><strong>Para verificar:</strong></p>
+                            <ul>
+                                <li>🗺️ Abre en Maps para ver ubicación</li>
+                                <li>✓ Si es correcta, marca como verificada</li>
+                                <li>✏️ Si es incorrecta, pega el link correcto</li>
+                            </ul>
+                            <p style="margin-top: 8px; font-size: 0.8rem; color: var(--text-muted);">Los cambios se guardan en Google Sheets.</p>
+                        </div>
+                    </span>
+                    <button type="button" class="refresh-btn" id="refresh-clients-btn" onclick="refreshClients()" title="Sincronizar con Bsale">
+                        <span class="refresh-icon">↻</span>
                     </button>
                 </div>
                 <div class="cache-status" id="cache-status"></div>
                 
                 <div class="input-group">
-                    <label class="input-label">
-                        <span class="input-label-icon">🔍</span>
-                        Buscar y seleccionar clientes
-                    </label>
                     <div class="client-selector">
-                        <input type="text" id="client-search" class="client-search" placeholder="Escribe para buscar clientes..." autocomplete="off">
+                        <input type="text" id="client-search" class="client-search" placeholder="Buscar por nombre, empresa o dirección..." autocomplete="off">
                         <div class="client-dropdown" id="client-dropdown">
                             <div class="loading-clients" id="loading-clients">
                                 <span class="mini-spinner"></span>
@@ -1312,10 +1966,6 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
                     <div class="selected-clients" id="selected-clients"></div>
-                    <p class="input-hint">
-                        <span>💡</span>
-                        Los clientes seleccionados se agregarán como paradas de entrega
-                    </p>
                 </div>
             </div>
             
@@ -1340,10 +1990,15 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 </div>
             </div>
             
-            <button class="btn btn-primary" onclick="optimizeRoute()">
-                <span>⚡</span>
-                Optimizar Ruta
-            </button>
+            <div id="route-button-container">
+                <button class="btn btn-primary" id="optimize-btn" onclick="optimizeRoute()">
+                    <span>⚡</span>
+                    Optimizar Ruta
+                </button>
+                <p class="unverified-warning" id="unverified-warning" style="display: none;">
+                    ⚠️ <span id="unverified-count">0</span> cliente(s) sin verificar. Verifica las direcciones antes de continuar.
+                </p>
+            </div>
             
             <div id="error-container"></div>
         </main>
@@ -1376,11 +2031,13 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     <!-- Populated by JS -->
                 </div>
                 
-                <div class="action-row">
-                    <a href="#" class="btn btn-maps" id="maps-link" target="_blank">
+                <div class="action-row" id="maps-link-container">
+                    <a href="#" class="btn btn-maps" target="_blank">
                         <span>🗺️</span>
                         Abrir en Google Maps
                     </a>
+                </div>
+                <div class="action-row">
                     <button class="btn btn-secondary" onclick="resetForm()">
                         <span>↩️</span>
                         Nueva Ruta
@@ -1398,6 +2055,8 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         // Global state
         let allClients = [];
         let selectedClients = [];
+        let sheetsAvailable = false;  // Whether Google Sheets is configured
+        let fixingClientId = null;    // Client being fixed in modal
         const MIUSHOP_URL = 'https://maps.app.goo.gl/mk3h6HRg4Mv7ru3GA';
         
         function setEndToMiuShop() {
@@ -1418,6 +2077,171 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             loadClients();
             setupClientSearch();
         });
+        
+        // ============ Address Verification Functions ============
+        
+        function openMapsLink(client) {
+            // Open the client's maps link or generate one from address
+            let url = client.maps_link;
+            if (!url && client.address) {
+                // Generate a search URL from address
+                const query = encodeURIComponent(`${client.address}, ${client.district || ''}, ${client.city || ''}, Peru`);
+                url = `https://www.google.com/maps/search/?api=1&query=${query}`;
+            }
+            if (url) {
+                window.open(url, '_blank');
+            }
+        }
+        
+        // Track which clients are in "confirming" state for 2-step verification
+        let confirmingVerification = {};
+        
+        function handleVerifyClick(clientId) {
+            // Show confirmation popup
+            const client = selectedClients.find(c => (c.bsale_id || c.id) == clientId);
+            const clientName = client ? (client.name || `${client.firstName || ''} ${client.lastName || ''}`.trim()) : 'este cliente';
+            
+            showVerifyConfirmPopup(clientId, clientName);
+        }
+        
+        function showVerifyConfirmPopup(clientId, clientName) {
+            // Create popup overlay
+            const popup = document.createElement('div');
+            popup.className = 'verify-popup-overlay';
+            popup.innerHTML = `
+                <div class="verify-popup">
+                    <div class="verify-popup-icon">✓</div>
+                    <h3>¿Confirmar dirección?</h3>
+                    <p><strong>${clientName}</strong></p>
+                    <p class="verify-popup-note">Al verificar confirmas que la ubicación en el mapa es correcta. Esto mejora la precisión de las rutas.</p>
+                    <p class="verify-popup-hint">Puedes editarla después si es necesario.</p>
+                    <div class="verify-popup-actions">
+                        <button class="verify-popup-btn cancel" onclick="closeVerifyPopup()">Cancelar</button>
+                        <button class="verify-popup-btn confirm" onclick="confirmVerify(${clientId})">Sí, es correcta</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(popup);
+            
+            // Close on overlay click
+            popup.addEventListener('click', (e) => {
+                if (e.target === popup) closeVerifyPopup();
+            });
+        }
+        
+        function closeVerifyPopup() {
+            const popup = document.querySelector('.verify-popup-overlay');
+            if (popup) popup.remove();
+        }
+        
+        function confirmVerify(clientId) {
+            closeVerifyPopup();
+            verifyClientAddress(clientId);
+        }
+        
+        async function verifyClientAddress(clientId) {
+            const btn = document.getElementById(`verify-btn-${clientId}`);
+            if (btn) {
+                btn.innerHTML = '...';
+                btn.disabled = true;
+            }
+            
+            try {
+                const response = await fetch(`/api/sheets/clients/${clientId}/verify`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Update local client data
+                    const client = selectedClients.find(c => c.bsale_id == clientId);
+                    if (client) client.verified = 'yes';
+                    const allClient = allClients.find(c => c.bsale_id == clientId);
+                    if (allClient) allClient.verified = 'yes';
+                    
+                    renderSelectedClients();
+                    renderClientOptions(allClients);
+                    showSuccess('✓ Dirección verificada y guardada');
+                } else {
+                    showError(data.error || 'Error al verificar');
+                    if (btn) {
+                        btn.innerHTML = '✓';
+                        btn.disabled = false;
+                    }
+                }
+            } catch (err) {
+                console.error('Verify error:', err);
+                showError('Error de conexión');
+                if (btn) {
+                    btn.innerHTML = '✓';
+                    btn.disabled = false;
+                }
+            }
+        }
+        
+        function openFixModal(client) {
+            fixingClientId = client.bsale_id;
+            document.getElementById('modal-client-name').textContent = client.name || `${client.firstName || ''} ${client.lastName || ''}`.trim();
+            document.getElementById('modal-current-address').textContent = client.address || 'Sin dirección';
+            document.getElementById('modal-maps-link').value = client.maps_link || '';
+            document.getElementById('fix-address-modal').classList.add('active');
+        }
+        
+        function closeFixModal() {
+            fixingClientId = null;
+            document.getElementById('fix-address-modal').classList.remove('active');
+        }
+        
+        async function saveFixedAddress() {
+            const mapsLink = document.getElementById('modal-maps-link').value.trim();
+            if (!mapsLink) {
+                alert('Por favor ingresa un link de Google Maps');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/sheets/clients/${fixingClientId}/fix`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ maps_link: mapsLink })
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Update local client data
+                    const client = selectedClients.find(c => c.bsale_id == fixingClientId);
+                    if (client) {
+                        client.verified = 'yes';
+                        client.maps_link = mapsLink;
+                    }
+                    const allClient = allClients.find(c => c.bsale_id == fixingClientId);
+                    if (allClient) {
+                        allClient.verified = 'yes';
+                        allClient.maps_link = mapsLink;
+                    }
+                    
+                    closeFixModal();
+                    renderSelectedClients();
+                    renderClientOptions(allClients);
+                    showSuccess('✓ Dirección corregida y verificada');
+                } else {
+                    alert(data.error || 'Error al guardar');
+                }
+            } catch (err) {
+                console.error('Fix error:', err);
+                alert('Error de conexión');
+            }
+        }
+        
+        function showSuccess(message) {
+            // Simple success notification
+            const errorContainer = document.getElementById('error-container');
+            errorContainer.innerHTML = `<div style="background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); color: #2e7d32; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px;">${message}</div>`;
+            setTimeout(() => { errorContainer.innerHTML = ''; }, 3000);
+        }
         
         function formatLastUpdated(isoString) {
             if (!isoString) return 'Nunca';
@@ -1454,12 +2278,37 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         }
         
         async function loadClients() {
+            const loadingEl = document.getElementById('loading-clients');
+            
+            // Try Google Sheets first (source of truth for verified addresses)
+            try {
+                const sheetsResponse = await fetch('/api/sheets/clients', { credentials: 'same-origin' });
+                if (sheetsResponse.ok) {
+                    const sheetsData = await sheetsResponse.json();
+                    if (sheetsData.clients && sheetsData.clients.length > 0) {
+                        sheetsAvailable = true;
+                        allClients = sheetsData.clients;
+                        loadingEl.style.display = 'none';
+                        
+                        // Update status for sheets
+                        const statusEl = document.getElementById('cache-status');
+                        const verifiedCount = allClients.filter(c => c.verified === 'yes').length;
+                        statusEl.className = 'cache-status';
+                        statusEl.innerHTML = `<span class="status-dot"></span> ${allClients.length} clientes (${verifiedCount} verificados) • Fuente: Google Sheets`;
+                        
+                        renderClientOptions(allClients);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.log('Google Sheets not available, falling back to Bsale cache:', err);
+            }
+            
+            // Fall back to Bsale cache
             try {
                 const response = await fetch('/api/clients', { credentials: 'same-origin' });
                 const data = await response.json();
                 allClients = data.clients || [];
-                
-                const loadingEl = document.getElementById('loading-clients');
                 
                 // Update cache status
                 updateCacheStatus(data);
@@ -1527,32 +2376,106 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             }
         }
         
+        // Track highlighted option index for keyboard navigation
+        let highlightedIndex = -1;
+        let currentFilteredClients = [];
+        
         function setupClientSearch() {
             const searchInput = document.getElementById('client-search');
             const dropdown = document.getElementById('client-dropdown');
             
             searchInput.addEventListener('focus', () => {
                 dropdown.classList.add('active');
+                highlightedIndex = -1;
+            });
+            
+            // Keyboard navigation
+            searchInput.addEventListener('keydown', (e) => {
+                const options = dropdown.querySelectorAll('.client-option');
+                
+                if (e.key === 'Escape') {
+                    // Close dropdown and blur input
+                    dropdown.classList.remove('active');
+                    searchInput.blur();
+                    highlightedIndex = -1;
+                    updateHighlight(options);
+                    e.preventDefault();
+                    return;
+                }
+                
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    highlightedIndex = Math.min(highlightedIndex + 1, options.length - 1);
+                    updateHighlight(options);
+                    scrollOptionIntoView(options[highlightedIndex]);
+                    return;
+                }
+                
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    highlightedIndex = Math.max(highlightedIndex - 1, 0);
+                    updateHighlight(options);
+                    scrollOptionIntoView(options[highlightedIndex]);
+                    return;
+                }
+                
+                if (e.key === 'Enter' && highlightedIndex >= 0) {
+                    e.preventDefault();
+                    if (currentFilteredClients[highlightedIndex]) {
+                        toggleClient(currentFilteredClients[highlightedIndex]);
+                        highlightedIndex = -1;
+                        // Collapse dropdown and clear search after selection
+                        dropdown.classList.remove('active');
+                        searchInput.value = '';
+                        searchInput.blur();
+                    }
+                    return;
+                }
             });
             
             searchInput.addEventListener('input', (e) => {
                 const query = e.target.value.toLowerCase().trim();
+                highlightedIndex = -1; // Reset highlight on new search
+                
                 if (!query) {
+                    currentFilteredClients = allClients.slice(0, 50);
                     renderClientOptions(allClients);
                     return;
                 }
+                
+                // Token-based fuzzy search: "Javier Gutierrez" matches "Javier Alonso Gutierrez"
+                // Also ignores accents: "García" matches "Garcia"
+                const normalizeText = (text) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                const normalizedQuery = normalizeText(query);
+                const searchTokens = normalizedQuery.split(/\s+/).filter(t => t.length > 0);
+                
                 const filtered = allClients.filter(c => {
-                    const firstName = (c.firstName || '').toLowerCase();
-                    const lastName = (c.lastName || '').toLowerCase();
-                    const company = (c.company || '').toLowerCase();
-                    const address = (c.address || '').toLowerCase();
-                    const code = (c.code || '').toLowerCase();
-                    return firstName.includes(query) ||
-                           lastName.includes(query) ||
-                           company.includes(query) ||
-                           address.includes(query) ||
-                           code.includes(query);
+                    // Build searchable text from all relevant fields (handles both Bsale and Sheets format)
+                    const clientName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim();
+                    const searchText = normalizeText([
+                        clientName,
+                        c.company || '',
+                        c.address || '',
+                        c.code || '',
+                        c.district || ''
+                    ].join(' '));
+                    
+                    // All search tokens must appear somewhere in the searchText
+                    return searchTokens.every(token => searchText.includes(token));
                 });
+                
+                // Sort results: exact matches first, then by how early the match appears
+                filtered.sort((a, b) => {
+                    const aName = normalizeText(a.name || `${a.firstName || ''} ${a.lastName || ''}`);
+                    const bName = normalizeText(b.name || `${b.firstName || ''} ${b.lastName || ''}`);
+                    const aExact = aName.startsWith(searchTokens[0]);
+                    const bExact = bName.startsWith(searchTokens[0]);
+                    if (aExact && !bExact) return -1;
+                    if (!aExact && bExact) return 1;
+                    return aName.localeCompare(bName);
+                });
+                
+                currentFilteredClients = filtered.slice(0, 50);
                 renderClientOptions(filtered);
             });
             
@@ -1560,15 +2483,30 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             document.addEventListener('click', (e) => {
                 if (!e.target.closest('.client-selector')) {
                     dropdown.classList.remove('active');
+                    highlightedIndex = -1;
                 }
             });
         }
         
+        function updateHighlight(options) {
+            options.forEach((opt, i) => {
+                if (i === highlightedIndex) {
+                    opt.classList.add('highlighted');
+                } else {
+                    opt.classList.remove('highlighted');
+                }
+            });
+        }
+        
+        function scrollOptionIntoView(option) {
+            if (option) {
+                option.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        }
+        
         function renderClientOptions(clients) {
             const dropdown = document.getElementById('client-dropdown');
-            const loadingEl = document.getElementById('loading-clients');
             
-            // Clear previous options (keep loading element)
             dropdown.innerHTML = '';
             
             if (clients.length === 0) {
@@ -1576,22 +2514,45 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 return;
             }
             
-            clients.forEach(client => {
-                const isSelected = selectedClients.some(c => c.id === client.id);
+            // Limit to first 50 for performance
+            const displayClients = clients.slice(0, 50);
+            
+            displayClients.forEach(client => {
+                const clientId = client.bsale_id || client.id;
+                const isSelected = selectedClients.some(c => (c.bsale_id || c.id) === clientId);
+                const isVerified = client.verified === 'yes';
+                const clientName = client.name || `${client.firstName || ''} ${client.lastName || ''}`.trim();
+                
                 const div = document.createElement('div');
                 div.className = 'client-option' + (isSelected ? ' selected' : '');
+                
+                // Compact status indicator
+                const statusDot = sheetsAvailable 
+                    ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${isVerified ? '#4caf50' : '#ff9800'};margin-right:8px;"></span>`
+                    : '';
+                
+                const addressText = [client.address, client.district].filter(Boolean).join(', ');
+                
                 div.innerHTML = `
-                    <div class="client-name">${client.firstName} ${client.lastName}</div>
-                    <div class="client-address">${client.address}${client.municipality ? ', ' + client.municipality : ''}</div>
-                    ${client.code ? '<div class="client-code">' + client.code + '</div>' : ''}
+                    <div class="client-name">${statusDot}${clientName}</div>
+                    ${addressText ? `<div class="client-address">${addressText}</div>` : ''}
                 `;
                 div.onclick = () => toggleClient(client);
                 dropdown.appendChild(div);
             });
+            
+            // Show count if more results
+            if (clients.length > 50) {
+                const moreDiv = document.createElement('div');
+                moreDiv.className = 'no-clients';
+                moreDiv.textContent = `+ ${clients.length - 50} más. Escribe para filtrar.`;
+                dropdown.appendChild(moreDiv);
+            }
         }
         
         function toggleClient(client) {
-            const idx = selectedClients.findIndex(c => c.id === client.id);
+            const clientId = client.bsale_id || client.id;
+            const idx = selectedClients.findIndex(c => (c.bsale_id || c.id) === clientId);
             if (idx >= 0) {
                 selectedClients.splice(idx, 1);
             } else {
@@ -1607,16 +2568,73 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         
         function renderSelectedClients() {
             const container = document.getElementById('selected-clients');
-            container.innerHTML = selectedClients.map(c => `
-                <span class="client-tag">
-                    ${c.firstName} ${c.lastName}
-                    <button class="client-tag-remove" onclick="removeClient(${c.id})">×</button>
-                </span>
-            `).join('');
+            container.innerHTML = selectedClients.map(c => {
+                const clientId = c.bsale_id || c.id;
+                const clientName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim();
+                const isVerified = c.verified === 'yes';
+                const addressText = [c.address, c.district].filter(Boolean).join(', ') || 'Sin dirección';
+                const phoneText = c.phone || '';
+                
+                // Phone display with click-to-call link
+                const phoneHtml = phoneText 
+                    ? `<span class="client-tag-phone">📞 <a href="tel:${phoneText}">${phoneText}</a></span>`
+                    : '';
+                
+                // Clean, compact tag with action buttons
+                const actionButtons = sheetsAvailable ? `
+                    <span class="client-tag-actions">
+                        <button class="client-tag-btn maps-btn" onclick="event.stopPropagation(); openMapsLink(selectedClients.find(x => (x.bsale_id||x.id)==${clientId}))" title="Ver en Maps">🗺️</button>
+                        ${!isVerified ? `<button class="client-tag-btn verify-btn" id="verify-btn-${clientId}" onclick="event.stopPropagation(); handleVerifyClick(${clientId})" title="Clic para confirmar verificación">✓</button>` : '<button class="client-tag-btn" style="opacity:0.3;cursor:default;background:#e8f5e9;border-color:#c8e6c9;" disabled title="Verificado">✓</button>'}
+                        <button class="client-tag-btn fix-btn" onclick="event.stopPropagation(); openFixModal(selectedClients.find(x => (x.bsale_id||x.id)==${clientId}))" title="Corregir dirección">✏️</button>
+                    </span>
+                ` : '';
+                
+                return `
+                    <div class="client-tag ${isVerified ? 'verified' : 'unverified'}">
+                        <span class="client-tag-status ${isVerified ? 'verified' : 'unverified'}"></span>
+                        <div class="client-tag-info">
+                            <span class="client-tag-name">${clientName}</span>
+                            <span class="client-tag-address">${addressText}</span>
+                            ${phoneHtml}
+                        </div>
+                        ${actionButtons}
+                        <button class="client-tag-remove" onclick="removeClient(${clientId})">×</button>
+                    </div>
+                `;
+            }).join('');
+            
+            // Update button state based on verification status
+            updateOptimizeButtonState();
+        }
+        
+        function updateOptimizeButtonState() {
+            const btn = document.getElementById('optimize-btn');
+            const warning = document.getElementById('unverified-warning');
+            const countSpan = document.getElementById('unverified-count');
+            
+            if (!sheetsAvailable || selectedClients.length === 0) {
+                // If sheets not available or no clients, allow route generation
+                btn.disabled = false;
+                warning.style.display = 'none';
+                return;
+            }
+            
+            // Count unverified clients
+            const unverifiedClients = selectedClients.filter(c => c.verified !== 'yes');
+            const unverifiedCount = unverifiedClients.length;
+            
+            if (unverifiedCount > 0) {
+                btn.disabled = true;
+                countSpan.textContent = unverifiedCount;
+                warning.style.display = 'flex';
+            } else {
+                btn.disabled = false;
+                warning.style.display = 'none';
+            }
         }
         
         function removeClient(clientId) {
-            selectedClients = selectedClients.filter(c => c.id !== clientId);
+            selectedClients = selectedClients.filter(c => (c.bsale_id || c.id) !== clientId);
             renderSelectedClients();
             renderClientOptions(allClients);
         }
@@ -1629,8 +2647,13 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             // Get manual URL stops
             const manualStops = stopsText ? stopsText.split('\\n').filter(url => url.trim()) : [];
             
-            // Get selected client IDs
-            const clientIds = selectedClients.map(c => c.id);
+            // Get selected client IDs (handle both Bsale cache and Sheets format)
+            const clientIds = selectedClients.map(c => c.bsale_id || c.id);
+            
+            // If using Sheets data, also pass the maps links directly for verified clients
+            const clientMapsLinks = sheetsAvailable 
+                ? selectedClients.filter(c => c.maps_link && c.verified === 'yes').map(c => c.maps_link)
+                : [];
             
             // Need at least one stop (client or manual)
             if (clientIds.length === 0 && manualStops.length === 0) {
@@ -1744,8 +2767,33 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 </div>
             `;
             
-            // Maps link
-            document.getElementById('maps-link').href = data.google_maps_url;
+            // Maps links - handle single or multiple route parts
+            const mapsLinkContainer = document.getElementById('maps-link-container');
+            
+            if (data.route_parts && data.route_parts.length > 1) {
+                // Multiple route parts needed
+                mapsLinkContainer.innerHTML = `
+                    <div class="route-parts-notice">
+                        <span>📍</span> La ruta tiene ${data.stops.length} paradas y se divide en ${data.route_parts.length} partes
+                    </div>
+                    <div class="route-parts-buttons">
+                        ${data.route_parts.map((part, i) => `
+                            <a href="${part.url}" class="btn btn-maps route-part-btn" target="_blank">
+                                <span>🗺️</span>
+                                Ruta Parte ${part.part_number}
+                            </a>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                // Single route
+                mapsLinkContainer.innerHTML = `
+                    <a href="${data.google_maps_url}" class="btn btn-maps" target="_blank">
+                        <span>🗺️</span>
+                        Abrir en Google Maps
+                    </a>
+                `;
+            }
         }
         
         function showError(message) {
@@ -1760,6 +2808,23 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             document.getElementById('error-container').innerHTML = '';
         }
     </script>
+    
+    <!-- Fix Address Modal -->
+    <div class="modal-overlay" id="fix-address-modal">
+        <div class="modal-content">
+            <h3 class="modal-title">📍 Corregir Dirección</h3>
+            <div class="modal-body">
+                <p><strong id="modal-client-name"></strong></p>
+                <p>Dirección actual: <span id="modal-current-address"></span></p>
+                <p>Pega un link de Google Maps con la ubicación correcta:</p>
+                <input type="text" class="modal-input" id="modal-maps-link" placeholder="https://maps.app.goo.gl/...">
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-cancel" onclick="closeFixModal()">Cancelar</button>
+                <button class="modal-btn modal-btn-save" onclick="saveFixedAddress()">Guardar y Verificar</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -1802,6 +2867,102 @@ def refresh_clients():
     return jsonify({"status": "started", "message": "Actualizando clientes..."})
 
 
+# ============================================================================
+# Google Sheets Client Verification Endpoints
+# ============================================================================
+
+@app.route('/api/sheets/clients')
+@requires_auth
+def get_sheets_clients():
+    """Get clients from Google Sheet (source of truth for addresses)."""
+    try:
+        from sheets import get_all_clients
+        clients = get_all_clients()
+        return jsonify({
+            "clients": clients,
+            "count": len(clients),
+            "source": "google_sheets"
+        })
+    except ImportError:
+        return jsonify({"error": "Google Sheets module not available"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sheets/clients/<int:bsale_id>')
+@requires_auth  
+def get_sheets_client(bsale_id):
+    """Get a single client from Google Sheet by Bsale ID."""
+    try:
+        from sheets import get_client_by_bsale_id
+        client = get_client_by_bsale_id(bsale_id)
+        if client:
+            return jsonify({"client": client})
+        return jsonify({"error": "Cliente no encontrado"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sheets/clients/<int:bsale_id>/verify', methods=['POST'])
+@requires_auth
+def verify_client_address(bsale_id):
+    """Mark a client's address as verified in Google Sheet."""
+    try:
+        from sheets import verify_client
+        success = verify_client(bsale_id)
+        if success:
+            return jsonify({"status": "success", "message": "Dirección verificada"})
+        return jsonify({"error": "No se pudo verificar la dirección"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sheets/clients/<int:bsale_id>/fix', methods=['POST'])
+@requires_auth
+def fix_client_address(bsale_id):
+    """Update a client's Google Maps link and mark as verified."""
+    data = request.json
+    maps_link = data.get('maps_link', '')
+    
+    if not maps_link:
+        return jsonify({"error": "Se requiere maps_link"}), 400
+    
+    # Validate it's a Google Maps URL
+    if 'google.com/maps' not in maps_link and 'goo.gl' not in maps_link and 'maps.app' not in maps_link:
+        return jsonify({"error": "El link debe ser una URL de Google Maps"}), 400
+    
+    try:
+        from sheets import fix_client_address as fix_address
+        success = fix_address(bsale_id, maps_link)
+        if success:
+            return jsonify({"status": "success", "message": "Dirección corregida y verificada"})
+        return jsonify({"error": "No se pudo actualizar la dirección"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sheets/sync', methods=['POST'])
+@requires_auth
+def sync_bsale_to_sheets():
+    """Trigger a sync from Bsale to Google Sheets."""
+    try:
+        from sync_clients import sync_clients_to_sheet
+        import threading
+        
+        def run_sync():
+            sync_clients_to_sheet(new_only=True)
+        
+        thread = threading.Thread(target=run_sync)
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"status": "started", "message": "Sincronización iniciada en segundo plano"})
+    except ImportError as e:
+        return jsonify({"error": f"Module not available: {e}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/optimize', methods=['POST'])
 @requires_auth
 def optimize():
@@ -1824,28 +2985,72 @@ def optimize():
     waypoints = []
     waypoint_info = []  # Store extra info for each waypoint
     
-    # Get coordinates from Bsale clients
+    # Try to get clients from Google Sheets first (has verified addresses)
+    sheets_clients = {}
+    try:
+        from sheets import get_all_clients
+        all_sheets_clients = get_all_clients()
+        sheets_clients = {str(c.get('bsale_id')): c for c in all_sheets_clients}
+    except Exception as e:
+        print(f"Could not load sheets clients: {e}")
+    
+    # Get coordinates from clients
     if client_ids:
-        all_clients = fetch_bsale_clients()
-        client_map = {c['id']: c for c in all_clients}
+        # Fall back to Bsale cache if sheets not available
+        bsale_clients = fetch_bsale_clients()
+        bsale_map = {c['id']: c for c in bsale_clients}
         
         for client_id in client_ids:
-            client = client_map.get(client_id)
-            if client:
-                # Geocode the client address (include district for accuracy)
-                coords = geocode_address(
-                    client.get('address', ''),
-                    client.get('city', ''),
-                    client.get('district', '')  # District like "San Isidro", "Miraflores", etc.
-                )
-                if coords:
-                    waypoints.append(coords)
-                    waypoint_info.append({
-                        'coords': coords,
-                        'client_name': f"{client.get('firstName', '')} {client.get('lastName', '')}".strip(),
-                        'address': client.get('address', ''),
-                        'is_client': True
-                    })
+            coords = None
+            client_name = ""
+            client_address = ""
+            
+            # First, try Google Sheets (verified addresses with maps_link)
+            sheets_client = sheets_clients.get(str(client_id))
+            if sheets_client:
+                client_name = sheets_client.get('name', '')
+                client_address = sheets_client.get('address', '')
+                
+                # Use maps_link if available (especially for verified clients)
+                maps_link = sheets_client.get('maps_link', '')
+                if maps_link:
+                    coords = extract_coords_from_url(maps_link)
+                
+                # If no maps_link or couldn't extract coords, use stored lat/lng
+                if not coords and sheets_client.get('lat') and sheets_client.get('lng'):
+                    try:
+                        coords = (float(sheets_client['lat']), float(sheets_client['lng']))
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Fall back to geocoding address
+                if not coords and client_address:
+                    coords = geocode_address(
+                        client_address,
+                        sheets_client.get('city', ''),
+                        sheets_client.get('district', '')
+                    )
+            
+            # Fall back to Bsale cache client
+            if not coords:
+                bsale_client = bsale_map.get(client_id)
+                if bsale_client:
+                    client_name = f"{bsale_client.get('firstName', '')} {bsale_client.get('lastName', '')}".strip()
+                    client_address = bsale_client.get('address', '')
+                    coords = geocode_address(
+                        client_address,
+                        bsale_client.get('city', ''),
+                        bsale_client.get('district', '')
+                    )
+            
+            if coords:
+                waypoints.append(coords)
+                waypoint_info.append({
+                    'coords': coords,
+                    'client_name': client_name,
+                    'address': client_address,
+                    'is_client': True
+                })
     
     # Get coordinates from manual URLs
     for url in stop_urls:
@@ -1921,6 +3126,9 @@ def optimize():
         last_dur_str = last_leg.get("duration", "0s")
         last_leg_time = format_duration(int(last_dur_str.rstrip("s")))
     
+    # Generate route URLs - split if more than 8 waypoints
+    route_parts = generate_split_routes(origin, destination, ordered_waypoints)
+    
     return jsonify({
         "origin": origin,
         "origin_address": origin_address,
@@ -1931,7 +3139,9 @@ def optimize():
         "total_time": format_duration(total_duration),
         "last_leg_distance": last_leg_dist,
         "last_leg_time": last_leg_time,
-        "google_maps_url": generate_google_maps_url(origin, destination, ordered_waypoints)
+        "google_maps_url": route_parts[0]["url"] if len(route_parts) == 1 else None,
+        "route_parts": route_parts if len(route_parts) > 1 else None,
+        "total_route_parts": len(route_parts)
     })
 
 

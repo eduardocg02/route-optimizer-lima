@@ -13,6 +13,11 @@ ENV/
 # Client cache
 clients_cache.json
 
+# Google Service Account Key (NEVER commit this!)
+gen-lang-client-*.json
+service-account.json
+*-service-account.json
+
 # IDE
 .vscode/
 .idea/
