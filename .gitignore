@@ -10,6 +10,9 @@ ENV/
 # Environment
 .env
 
+# Client cache
+clients_cache.json
+
 # IDE
 .vscode/
 .idea/

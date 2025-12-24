@@ -5,8 +5,12 @@ A Flask app for optimizing delivery routes in Lima, Peru.
 """
 
 import functools
+import json
 import os
 import re
+import threading
+from datetime import datetime
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -28,8 +32,18 @@ BSALE_API_URL = "https://api.bsale.io/v1"
 AUTH_USERNAME = os.getenv("AUTH_USERNAME", "admin")
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "admin")
 
-# Cache for Bsale clients (loaded once on startup)
-CLIENTS_CACHE = {"clients": [], "loaded": False, "loading_progress": 0, "total_count": 0}
+# Client cache file path
+CLIENTS_CACHE_FILE = Path(__file__).parent / "clients_cache.json"
+
+# In-memory cache state
+CLIENTS_CACHE = {
+    "clients": [],
+    "loaded": False,
+    "loading": False,
+    "loading_progress": 0,
+    "total_count": 0,
+    "last_updated": None
+}
 
 
 def check_auth(username, password):
@@ -231,17 +245,57 @@ def geocode_address(address: str, city: str = "", municipality: str = "") -> tup
         return None
 
 
-def fetch_bsale_clients(use_cache: bool = True) -> list[dict]:
-    """Fetch all active clients from Bsale API (with caching)."""
+def load_clients_from_file() -> list[dict]:
+    """Load clients from local JSON cache file."""
     global CLIENTS_CACHE
     
-    # Return cached clients if available
-    if use_cache and CLIENTS_CACHE["loaded"]:
+    if not CLIENTS_CACHE_FILE.exists():
+        return []
+    
+    try:
+        with open(CLIENTS_CACHE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            clients = data.get("clients", [])
+            last_updated = data.get("last_updated")
+            CLIENTS_CACHE["clients"] = clients
+            CLIENTS_CACHE["loaded"] = True
+            CLIENTS_CACHE["last_updated"] = last_updated
+            print(f"Loaded {len(clients)} clients from cache file (updated: {last_updated})")
+            return clients
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Error loading clients from file: {e}")
+        return []
+
+
+def save_clients_to_file(clients: list[dict]):
+    """Save clients to local JSON cache file."""
+    try:
+        data = {
+            "clients": clients,
+            "last_updated": datetime.now().isoformat(),
+            "count": len(clients)
+        }
+        with open(CLIENTS_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"Saved {len(clients)} clients to cache file")
+    except IOError as e:
+        print(f"Error saving clients to file: {e}")
+
+
+def fetch_bsale_clients_from_api() -> list[dict]:
+    """Fetch clients from Bsale API and update cache."""
+    global CLIENTS_CACHE
+    
+    if CLIENTS_CACHE["loading"]:
+        print("Already loading clients, skipping...")
         return CLIENTS_CACHE["clients"]
     
     if not BSALE_ACCESS_TOKEN:
         print("BSALE_ACCESS_TOKEN not configured")
         return []
+    
+    CLIENTS_CACHE["loading"] = True
+    CLIENTS_CACHE["loading_progress"] = 0
     
     clients = []
     offset = 0
@@ -266,7 +320,7 @@ def fetch_bsale_clients(use_cache: bool = True) -> list[dict]:
             total_count = data.get("count", 0)
             items = data.get("items", [])
             
-            # Update progress in cache
+            # Update progress
             CLIENTS_CACHE["total_count"] = total_count
             CLIENTS_CACHE["loading_progress"] = min(offset + len(items), total_count)
             
@@ -277,20 +331,16 @@ def fetch_bsale_clients(use_cache: bool = True) -> list[dict]:
                 break
             
             for client in items:
-                address = client.get("address", "")
                 clients.append({
                     "id": client.get("id"),
                     "firstName": client.get("firstName", ""),
                     "lastName": client.get("lastName", ""),
                     "company": client.get("company", ""),
-                    "address": address,
+                    "address": client.get("address", ""),
                     "city": client.get("city", ""),
                     "municipality": client.get("municipality", ""),
                     "code": client.get("code", "")
                 })
-            
-            # Update clients in cache progressively
-            CLIENTS_CACHE["clients"] = clients.copy()
             
             offset += limit
             if offset >= total_count:
@@ -298,24 +348,39 @@ def fetch_bsale_clients(use_cache: bool = True) -> list[dict]:
         
         print(f"Total Bsale clients fetched: {len(clients)}")
         
-        # Mark as fully loaded
+        # Update in-memory cache
         CLIENTS_CACHE["clients"] = clients
         CLIENTS_CACHE["loaded"] = True
         CLIENTS_CACHE["loading_progress"] = total_count
+        CLIENTS_CACHE["last_updated"] = datetime.now().isoformat()
+        
+        # Save to file
+        save_clients_to_file(clients)
         
         return clients
     except requests.RequestException as e:
         print(f"Error fetching Bsale clients: {e}")
         if hasattr(e, 'response') and e.response is not None:
             print(f"Response content: {e.response.text}")
-        return []
+        return CLIENTS_CACHE["clients"]  # Return existing cached clients on error
+    finally:
+        CLIENTS_CACHE["loading"] = False
 
 
 def preload_clients():
-    """Preload clients on app startup."""
-    print("Preloading Bsale clients in background...")
-    import threading
-    thread = threading.Thread(target=fetch_bsale_clients, args=(False,))
+    """Load clients from file first, then refresh from API in background."""
+    global CLIENTS_CACHE
+    
+    # First, load from local file (instant)
+    cached_clients = load_clients_from_file()
+    
+    if cached_clients:
+        print(f"Using {len(cached_clients)} cached clients, refreshing in background...")
+        CLIENTS_CACHE["loaded"] = True
+    
+    # Then refresh from API in background
+    print("Starting background refresh from Bsale API...")
+    thread = threading.Thread(target=fetch_bsale_clients_from_api)
     thread.daemon = True
     thread.start()
 
@@ -485,6 +550,59 @@ HTML_TEMPLATE = """
             text-transform: uppercase;
             letter-spacing: 1.5px;
             color: var(--text-secondary);
+            flex: 1;
+        }
+        
+        .refresh-btn {
+            background: rgba(167, 139, 250, 0.15);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            border-radius: 8px;
+            padding: 6px 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.9rem;
+            line-height: 1;
+        }
+        
+        .refresh-btn:hover {
+            background: rgba(167, 139, 250, 0.25);
+            border-color: var(--accent-secondary);
+        }
+        
+        .refresh-btn.loading .refresh-icon {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .cache-status {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .cache-status .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-success);
+        }
+        
+        .cache-status.loading .status-dot {
+            background: var(--accent-warning);
+            animation: pulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
         }
         
         /* Form elements */
@@ -1162,7 +1280,11 @@ HTML_TEMPLATE = """
                 <div class="card-header">
                     <div class="card-icon">👥</div>
                     <span class="card-title">Clientes de Bsale</span>
+                    <button type="button" class="refresh-btn" id="refresh-clients-btn" onclick="refreshClients()" title="Actualizar clientes">
+                        <span class="refresh-icon">🔄</span>
+                    </button>
                 </div>
+                <div class="cache-status" id="cache-status"></div>
                 
                 <div class="input-group">
                     <label class="input-label">
@@ -1286,14 +1408,50 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             setupClientSearch();
         });
         
+        function formatLastUpdated(isoString) {
+            if (!isoString) return 'Nunca';
+            const date = new Date(isoString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMins < 1) return 'Hace un momento';
+            if (diffMins < 60) return `Hace ${diffMins} min`;
+            if (diffHours < 24) return `Hace ${diffHours}h`;
+            if (diffDays < 7) return `Hace ${diffDays} días`;
+            return date.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
+        }
+        
+        function updateCacheStatus(data) {
+            const statusEl = document.getElementById('cache-status');
+            const refreshBtn = document.getElementById('refresh-clients-btn');
+            
+            if (data.loading) {
+                const progress = data.progress || 0;
+                const total = data.total || 0;
+                const percent = total > 0 ? Math.round((progress / total) * 100) : 0;
+                statusEl.className = 'cache-status loading';
+                statusEl.innerHTML = `<span class="status-dot"></span> Actualizando... ${percent}% (${progress}/${total})`;
+                refreshBtn.classList.add('loading');
+            } else {
+                statusEl.className = 'cache-status';
+                statusEl.innerHTML = `<span class="status-dot"></span> ${data.count || 0} clientes • Actualizado: ${formatLastUpdated(data.last_updated)}`;
+                refreshBtn.classList.remove('loading');
+            }
+        }
+        
         async function loadClients() {
             try {
                 const response = await fetch('/api/clients', { credentials: 'same-origin' });
                 const data = await response.json();
                 allClients = data.clients || [];
                 
-                const dropdown = document.getElementById('client-dropdown');
                 const loadingEl = document.getElementById('loading-clients');
+                
+                // Update cache status
+                updateCacheStatus(data);
                 
                 // If still loading on server, show progress and retry
                 if (data.loading) {
@@ -1301,17 +1459,23 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     const total = data.total || 0;
                     const percent = total > 0 ? Math.round((progress / total) * 100) : 0;
                     
-                    loadingEl.innerHTML = `
-                        <div class="loading-clients">
-                            <div class="progress-container">
-                                <div class="progress-bar">
-                                    <div class="progress-fill" style="width: ${percent}%"></div>
+                    // If we have cached clients, show them while loading
+                    if (allClients.length > 0) {
+                        loadingEl.style.display = 'none';
+                        renderClientOptions(allClients);
+                    } else {
+                        loadingEl.innerHTML = `
+                            <div class="loading-clients">
+                                <div class="progress-container">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: ${percent}%"></div>
+                                    </div>
+                                    <div class="progress-text">${progress.toLocaleString()} / ${total.toLocaleString()} clientes (${percent}%)</div>
                                 </div>
-                                <div class="progress-text">${progress.toLocaleString()} / ${total.toLocaleString()} clientes (${percent}%)</div>
+                                <div class="loading-label"><span class="mini-spinner"></span> Cargando clientes de Bsale...</div>
                             </div>
-                            <div class="loading-label"><span class="mini-spinner"></span> Cargando clientes de Bsale...</div>
-                        </div>
-                    `;
+                        `;
+                    }
                     setTimeout(loadClients, 1000);
                     return;
                 }
@@ -1326,6 +1490,29 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 console.error('Error loading clients:', err);
                 document.getElementById('loading-clients').innerHTML = 
                     '<div class="no-clients">Error al cargar clientes</div>';
+            }
+        }
+        
+        async function refreshClients() {
+            const refreshBtn = document.getElementById('refresh-clients-btn');
+            if (refreshBtn.classList.contains('loading')) return;
+            
+            refreshBtn.classList.add('loading');
+            
+            try {
+                const response = await fetch('/api/clients/refresh', { 
+                    method: 'POST',
+                    credentials: 'same-origin' 
+                });
+                const data = await response.json();
+                
+                if (data.status === 'started' || data.status === 'already_loading') {
+                    // Start polling for updates
+                    setTimeout(loadClients, 500);
+                }
+            } catch (err) {
+                console.error('Error refreshing clients:', err);
+                refreshBtn.classList.remove('loading');
             }
         }
         
@@ -1576,15 +1763,32 @@ def index():
 @app.route('/api/clients')
 @requires_auth
 def get_clients():
-    """Fetch clients from Bsale API."""
-    clients = CLIENTS_CACHE["clients"]  # Get current cached clients (even if still loading)
+    """Get clients from cache."""
+    clients = CLIENTS_CACHE["clients"]
     return jsonify({
         "clients": clients,
-        "loading": not CLIENTS_CACHE["loaded"],
+        "loading": CLIENTS_CACHE["loading"],
+        "loaded": CLIENTS_CACHE["loaded"],
         "count": len(clients),
         "progress": CLIENTS_CACHE["loading_progress"],
-        "total": CLIENTS_CACHE["total_count"]
+        "total": CLIENTS_CACHE["total_count"],
+        "last_updated": CLIENTS_CACHE["last_updated"]
     })
+
+
+@app.route('/api/clients/refresh', methods=['POST'])
+@requires_auth
+def refresh_clients():
+    """Force refresh clients from Bsale API."""
+    if CLIENTS_CACHE["loading"]:
+        return jsonify({"status": "already_loading", "message": "Ya se está actualizando"})
+    
+    # Start background refresh
+    thread = threading.Thread(target=fetch_bsale_clients_from_api)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({"status": "started", "message": "Actualizando clientes..."})
 
 
 @app.route('/optimize', methods=['POST'])
