@@ -42,13 +42,20 @@ def extract_coords_from_url(url: str) -> tuple[float, float] | None:
             print(f"Warning: Could not resolve short URL {url}: {e}")
             return None
     
-    # Pattern 1: Coordinates in @ format (e.g., /@-12.0464,-77.0428,17z)
+    # Pattern 1: !3d and !4d format (actual place coordinates in data parameter)
+    # This is the most accurate for place URLs
+    place_lat = re.search(r'!3d(-?\d+\.?\d*)', url)
+    place_lng = re.search(r'!4d(-?\d+\.?\d*)', url)
+    if place_lat and place_lng:
+        return float(place_lat.group(1)), float(place_lng.group(1))
+    
+    # Pattern 2: Coordinates in @ format (e.g., /@-12.0464,-77.0428,17z) - fallback
     at_pattern = r"@(-?\d+\.?\d*),(-?\d+\.?\d*)"
     match = re.search(at_pattern, url)
     if match:
         return float(match.group(1)), float(match.group(2))
     
-    # Pattern 2: Coordinates in query parameter (e.g., ?q=-12.0464,-77.0428)
+    # Pattern 3: Coordinates in query parameter (e.g., ?q=-12.0464,-77.0428)
     parsed = urlparse(url)
     query_params = parse_qs(parsed.query)
     
@@ -59,14 +66,14 @@ def extract_coords_from_url(url: str) -> tuple[float, float] | None:
         if match:
             return float(match.group(1)), float(match.group(2))
     
-    # Pattern 3: Coordinates in the path for place URLs
+    # Pattern 4: Coordinates in the path for place URLs
     # e.g., /maps/place/Some+Place/-12.0464,-77.0428
     path_pattern = r"/(-?\d+\.?\d*),(-?\d+\.?\d*)"
     match = re.search(path_pattern, parsed.path)
     if match:
         return float(match.group(1)), float(match.group(2))
     
-    # Pattern 4: ll parameter
+    # Pattern 5: ll parameter
     if "ll" in query_params:
         ll_value = query_params["ll"][0]
         parts = ll_value.split(",")
