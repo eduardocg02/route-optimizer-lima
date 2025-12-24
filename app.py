@@ -1010,6 +1010,7 @@ HTML_TEMPLATE = """
             line-height: 1.6;
             resize: vertical;
             background: white;
+            color: #333;
             box-sizing: border-box;
         }
         
