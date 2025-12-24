@@ -456,6 +456,11 @@ HTML_TEMPLATE = """
             box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
         }
         
+        .card-bsale {
+            position: relative;
+            z-index: 100;
+        }
+        
         .card-header {
             display: flex;
             align-items: center;
@@ -556,6 +561,51 @@ HTML_TEMPLATE = """
             font-size: 0.75rem;
             color: var(--text-muted);
             margin-top: 8px;
+        }
+        
+        .input-prefilled {
+            border-color: rgba(74, 222, 128, 0.3);
+            background: rgba(74, 222, 128, 0.05);
+        }
+        
+        .prefilled-label {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 6px 12px;
+            background: rgba(74, 222, 128, 0.15);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--accent-success);
+        }
+        
+        .quick-fill-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 8px;
+            padding: 8px 14px;
+            background: rgba(167, 139, 250, 0.15);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--accent-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+        
+        .quick-fill-btn:hover {
+            background: rgba(167, 139, 250, 0.25);
+            border-color: var(--accent-secondary);
+        }
+        
+        .quick-fill-btn.active {
+            background: rgba(74, 222, 128, 0.15);
+            border-color: rgba(74, 222, 128, 0.3);
+            color: var(--accent-success);
         }
         
         /* Buttons */
@@ -878,15 +928,15 @@ HTML_TEMPLATE = """
             top: 100%;
             left: 0;
             right: 0;
-            max-height: 280px;
+            max-height: 320px;
             overflow-y: auto;
             background: var(--bg-elevated);
             border: 1px solid var(--border-default);
             border-radius: 12px;
             margin-top: 8px;
-            z-index: 100;
+            z-index: 9999;
             display: none;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
         }
         
         .client-dropdown.active {
@@ -1018,6 +1068,16 @@ HTML_TEMPLATE = """
             font-family: 'JetBrains Mono', monospace;
         }
         
+        .loading-label {
+            margin-top: 12px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
         .divider {
             display: flex;
             align-items: center;
@@ -1081,7 +1141,8 @@ HTML_TEMPLATE = """
                             <span class="input-label-icon">🟢</span>
                             Punto de Inicio
                         </label>
-                        <input type="text" id="start" class="input-field" placeholder="Pega el link de Google Maps...">
+                        <input type="text" id="start" class="input-field input-prefilled" value="https://maps.app.goo.gl/mk3h6HRg4Mv7ru3GA" placeholder="Pega el link de Google Maps...">
+                        <span class="prefilled-label">📍 MiuShop</span>
                     </div>
                     
                     <div class="input-group">
@@ -1090,11 +1151,14 @@ HTML_TEMPLATE = """
                             Punto Final
                         </label>
                         <input type="text" id="end" class="input-field" placeholder="Pega el link de Google Maps...">
+                        <button type="button" class="quick-fill-btn" onclick="setEndToMiuShop()">
+                            <span>🏠</span> Usar MiuShop
+                        </button>
                     </div>
                 </div>
             </div>
             
-            <div class="card">
+            <div class="card card-bsale">
                 <div class="card-header">
                     <div class="card-icon">👥</div>
                     <span class="card-title">Clientes de Bsale</span>
@@ -1201,6 +1265,20 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         // Global state
         let allClients = [];
         let selectedClients = [];
+        const MIUSHOP_URL = 'https://maps.app.goo.gl/mk3h6HRg4Mv7ru3GA';
+        
+        function setEndToMiuShop() {
+            const endInput = document.getElementById('end');
+            endInput.value = MIUSHOP_URL;
+            endInput.classList.add('input-prefilled');
+            
+            // Update button to show it's active
+            const btn = event.target.closest('.quick-fill-btn');
+            if (btn) {
+                btn.classList.add('active');
+                btn.innerHTML = '<span>✓</span> MiuShop';
+            }
+        }
         
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
@@ -1225,13 +1303,13 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     
                     loadingEl.innerHTML = `
                         <div class="loading-clients">
-                            <span class="mini-spinner"></span> Cargando clientes de Bsale...
                             <div class="progress-container">
                                 <div class="progress-bar">
                                     <div class="progress-fill" style="width: ${percent}%"></div>
                                 </div>
                                 <div class="progress-text">${progress.toLocaleString()} / ${total.toLocaleString()} clientes (${percent}%)</div>
                             </div>
+                            <div class="loading-label"><span class="mini-spinner"></span> Cargando clientes de Bsale...</div>
                         </div>
                     `;
                     setTimeout(loadClients, 1000);
