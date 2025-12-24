@@ -2832,11 +2832,18 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${isVerified ? '#4caf50' : '#ff9800'};margin-right:8px;"></span>`
                     : '';
                 
-                const addressText = [client.address, client.district].filter(Boolean).join(', ');
+                // For verified clients, show clean_address if available
+                let addressText;
+                if (isVerified && client.clean_address) {
+                    const district = client.verified_district || client.district || '';
+                    addressText = district ? `${client.clean_address} • ${district}` : client.clean_address;
+                } else {
+                    addressText = [client.address, client.district].filter(Boolean).join(', ');
+                }
                 
                 div.innerHTML = `
-                    <div class="client-name">${statusDot}${clientName}</div>
-                    ${addressText ? `<div class="client-address">${addressText}</div>` : ''}
+                    <div class="client-name">${statusDot}${escapeHtml(clientName)}</div>
+                    ${addressText ? `<div class="client-address">${escapeHtml(addressText)}</div>` : ''}
                 `;
                 div.onclick = () => toggleClient(client);
                 dropdown.appendChild(div);
@@ -2873,7 +2880,18 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 const clientId = c.bsale_id || c.id;
                 const clientName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim();
                 const isVerified = c.verified === 'yes';
-                const addressText = [c.address, c.district].filter(Boolean).join(', ') || 'Sin dirección';
+                
+                // For verified clients, prefer clean_address; otherwise show bsale address
+                let addressText;
+                if (isVerified && c.clean_address) {
+                    // Show formatted address with verified district
+                    const district = c.verified_district || c.district || '';
+                    addressText = district ? `${c.clean_address} • ${district}` : c.clean_address;
+                } else {
+                    // Show raw bsale address
+                    addressText = [c.address, c.district].filter(Boolean).join(', ') || 'Sin dirección';
+                }
+                
                 const phoneText = c.phone || '';
                 
                 // Phone display with click-to-call link
@@ -2895,7 +2913,7 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                         <span class="client-tag-status ${isVerified ? 'verified' : 'unverified'}"></span>
                         <div class="client-tag-info">
                             <span class="client-tag-name">${clientName}</span>
-                            <span class="client-tag-address">${addressText}</span>
+                            <span class="client-tag-address">${escapeHtml(addressText)}</span>
                             ${phoneHtml}
                         </div>
                         ${actionButtons}
