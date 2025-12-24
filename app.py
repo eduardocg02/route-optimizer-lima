@@ -3128,38 +3128,44 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             const title = titleInput.value || 'Ruta del día';
             let summary = `*${title}*\\n\\n`;
             
-            // Add each stop
+            // Add each stop with number
+            let stopNumber = 1;
             data.stops.forEach((stop, i) => {
                 if (stop.is_client && stop.client_name) {
-                    // Format client stop for WhatsApp
-                    summary += `${stop.client_name}\\n`;
+                    // Format client stop for WhatsApp with number
+                    summary += `*${stopNumber}.* ${stop.client_name}\\n`;
                     
                     // Add phone if available
                     if (stop.phone) {
-                        summary += `${stop.phone}\\n`;
+                        summary += `📞 ${stop.phone}\\n`;
                     }
                     
                     // Use clean_address if available, otherwise fall back to address extraction
                     if (stop.clean_address) {
-                        summary += `${stop.clean_address}\\n`;
+                        summary += `📍 ${stop.clean_address}`;
+                        if (stop.district) {
+                            summary += `, ${stop.district}`;
+                        }
+                        summary += '\\n';
                     } else {
                         // Extract just the address part (after the name and dash)
                         const addressParts = stop.address.split(' - ');
                         if (addressParts.length > 1) {
-                            summary += `${addressParts.slice(1).join(' - ')}\\n`;
+                            summary += `📍 ${addressParts.slice(1).join(' - ')}`;
+                            if (stop.district) {
+                                summary += `, ${stop.district}`;
+                            }
+                            summary += '\\n';
                         }
                     }
                     
-                    // Add district if available
-                    if (stop.district) {
-                        summary += `${stop.district}\\n`;
-                    }
-                    
                     summary += '\\n';
+                    stopNumber++;
                 } else {
                     // Manual waypoint
-                    summary += `Parada ${i + 1}\\n`;
-                    summary += `${stop.address}\\n\\n`;
+                    summary += `*${stopNumber}.* Parada manual\\n`;
+                    summary += `📍 ${stop.address}\\n\\n`;
+                    stopNumber++;
                 }
             });
             
