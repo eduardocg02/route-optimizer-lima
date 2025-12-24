@@ -245,6 +245,11 @@ def geocode_address(address: str, city: str = "", municipality: str = "") -> tup
         return None
 
 
+def fetch_bsale_clients() -> list[dict]:
+    """Get clients from in-memory cache."""
+    return CLIENTS_CACHE["clients"]
+
+
 def load_clients_from_file() -> list[dict]:
     """Load clients from local JSON cache file."""
     global CLIENTS_CACHE
