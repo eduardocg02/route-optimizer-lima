@@ -2303,6 +2303,16 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             showVerifyConfirmPopup(clientId, clientName);
         }
         
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;')
+                      .replace(/'/g, '&#039;')
+                      .replace(/`/g, '&#96;');
+        }
+        
         function showVerifyConfirmPopup(clientId, clientName) {
             // Get client details
             const client = selectedClients.find(c => (c.bsale_id || c.id) == clientId);
@@ -2313,6 +2323,11 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             // Use existing clean_address or default to bsale address
             const defaultCleanAddress = existingCleanAddress || bsaleAddress;
             
+            // Escape values for safe HTML insertion
+            const safeClientName = escapeHtml(clientName);
+            const safeCleanAddress = escapeHtml(defaultCleanAddress);
+            const safeDistrict = escapeHtml(existingDistrict);
+            
             // Create popup overlay
             const popup = document.createElement('div');
             popup.className = 'verify-popup-overlay';
@@ -2320,14 +2335,14 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 <div class="verify-popup verify-popup-wide">
                     <div class="verify-popup-icon">✓</div>
                     <h3>Verificar dirección</h3>
-                    <p><strong>${clientName}</strong></p>
+                    <p><strong>${safeClientName}</strong></p>
                     
                     <div class="verify-popup-fields">
                         <label>Dirección formateada (para WhatsApp):</label>
-                        <textarea id="verify-clean-address" rows="3" placeholder="Ej: Av. Benavides 4331\nPiso 3B">${defaultCleanAddress}</textarea>
+                        <textarea id="verify-clean-address" rows="3" placeholder="Ej: Av. Benavides 4331&#10;Piso 3B">${safeCleanAddress}</textarea>
                         
                         <label>Distrito:</label>
-                        <input type="text" id="verify-district" value="${existingDistrict}" placeholder="Ej: San Isidro, Miraflores">
+                        <input type="text" id="verify-district" value="${safeDistrict}" placeholder="Ej: San Isidro, Miraflores">
                     </div>
                     
                     <p class="verify-popup-note">Al verificar confirmas que la ubicación es correcta. Edita el formato de la dirección para que aparezca bien en el resumen de ruta.</p>
@@ -2567,7 +2582,7 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             
             // Try Google Sheets first (source of truth for verified addresses)
             try {
-                const sheetsResponse = await fetch('/api/sheets/clients', { credentials: 'same-origin' });
+                const sheetsResponse = await fetch('/api/sheets/clients');
                 if (sheetsResponse.ok) {
                     const sheetsData = await sheetsResponse.json();
                     if (sheetsData.clients && sheetsData.clients.length > 0) {
@@ -2591,7 +2606,7 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             
             // Fall back to Bsale cache
             try {
-                const response = await fetch('/api/clients', { credentials: 'same-origin' });
+                const response = await fetch('/api/clients');
                 const data = await response.json();
                 allClients = data.clients || [];
                 
@@ -3092,52 +3107,52 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             const summaryText = document.getElementById('route-summary-text');
             
             const title = titleInput.value || 'Ruta del día';
-            let summary = `*${title}*\n\n`;
+            let summary = `*${title}*\\n\\n`;
             
             // Add each stop
             data.stops.forEach((stop, i) => {
                 if (stop.is_client && stop.client_name) {
                     // Format client stop for WhatsApp
-                    summary += `${stop.client_name}\n`;
+                    summary += `${stop.client_name}\\n`;
                     
                     // Add phone if available
                     if (stop.phone) {
-                        summary += `${stop.phone}\n`;
+                        summary += `${stop.phone}\\n`;
                     }
                     
                     // Use clean_address if available, otherwise fall back to address extraction
                     if (stop.clean_address) {
-                        summary += `${stop.clean_address}\n`;
+                        summary += `${stop.clean_address}\\n`;
                     } else {
                         // Extract just the address part (after the name and dash)
                         const addressParts = stop.address.split(' - ');
                         if (addressParts.length > 1) {
-                            summary += `${addressParts.slice(1).join(' - ')}\n`;
+                            summary += `${addressParts.slice(1).join(' - ')}\\n`;
                         }
                     }
                     
                     // Add district if available
                     if (stop.district) {
-                        summary += `${stop.district}\n`;
+                        summary += `${stop.district}\\n`;
                     }
                     
-                    summary += '\n';
+                    summary += '\\n';
                 } else {
                     // Manual waypoint
-                    summary += `Parada ${i + 1}\n`;
-                    summary += `${stop.address}\n\n`;
+                    summary += `Parada ${i + 1}\\n`;
+                    summary += `${stop.address}\\n\\n`;
                 }
             });
             
             // Add Google Maps links
             if (data.route_parts && data.route_parts.length > 1) {
-                summary += '---\n\n';
+                summary += '---\\n\\n';
                 data.route_parts.forEach(part => {
-                    summary += `${part.url}\n\n`;
+                    summary += `${part.url}\\n\\n`;
                 });
             } else if (data.google_maps_url) {
-                summary += '---\n\n';
-                summary += `${data.google_maps_url}\n`;
+                summary += '---\\n\\n';
+                summary += `${data.google_maps_url}\\n`;
             }
             
             summaryText.value = summary.trim();
