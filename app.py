@@ -946,6 +946,103 @@ HTML_TEMPLATE = """
             max-width: 200px;
         }
         
+        /* Route Summary Section */
+        .route-summary-section {
+            margin-top: 24px;
+            padding: 20px;
+            background: linear-gradient(135deg, #fff5f8 0%, #ffeef3 100%);
+            border-radius: 16px;
+            border: 2px solid rgba(236, 72, 153, 0.15);
+        }
+        
+        .route-summary-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .route-summary-header h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--primary-dark);
+            margin: 0;
+        }
+        
+        .route-summary-input-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .route-summary-input-row label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        
+        .route-summary-input-row input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 2px solid #e5e5e5;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            font-weight: 600;
+            color: var(--primary-dark);
+        }
+        
+        .route-summary-input-row input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .route-summary-text {
+            width: 100%;
+            min-height: 280px;
+            padding: 16px;
+            border: 2px solid #e5e5e5;
+            border-radius: 12px;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            resize: vertical;
+            background: white;
+            box-sizing: border-box;
+        }
+        
+        .route-summary-text:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .btn-copy {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            background: white;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-copy:hover {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-copy.copied {
+            background: #10b981;
+            border-color: #10b981;
+            color: white;
+        }
+        
         /* Results */
         #results {
             display: none;
@@ -1654,6 +1751,59 @@ HTML_TEMPLATE = """
             margin-top: 8px !important;
         }
         
+        .verify-popup-wide {
+            max-width: 450px;
+            text-align: left;
+        }
+        
+        .verify-popup-wide h3 {
+            text-align: center;
+        }
+        
+        .verify-popup-wide > p:first-of-type {
+            text-align: center;
+        }
+        
+        .verify-popup-fields {
+            margin: 16px 0;
+        }
+        
+        .verify-popup-fields label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            margin-top: 12px;
+        }
+        
+        .verify-popup-fields label:first-child {
+            margin-top: 0;
+        }
+        
+        .verify-popup-fields input,
+        .verify-popup-fields textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e5e5e5;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+        
+        .verify-popup-fields input:focus,
+        .verify-popup-fields textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .verify-popup-fields textarea {
+            resize: vertical;
+            min-height: 70px;
+        }
+        
         .verify-popup-actions {
             display: flex;
             gap: 12px;
@@ -1717,6 +1867,37 @@ HTML_TEMPLATE = """
             max-width: 500px;
             width: 90%;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+        }
+        
+        .modal-content-wide {
+            max-width: 520px;
+        }
+        
+        .modal-bsale-address {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            padding: 10px;
+            background: #f8f8f8;
+            border-radius: 8px;
+        }
+        
+        .modal-field {
+            margin-bottom: 14px;
+        }
+        
+        .modal-field label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        
+        .modal-field textarea {
+            resize: vertical;
+            min-height: 70px;
+            font-family: inherit;
         }
         
         .modal-title {
@@ -2037,6 +2218,23 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                         Abrir en Google Maps
                     </a>
                 </div>
+                
+                <!-- Route Summary for WhatsApp -->
+                <div class="route-summary-section" id="route-summary-section">
+                    <div class="route-summary-header">
+                        <h3>📋 Resumen para WhatsApp</h3>
+                        <button class="btn btn-copy" onclick="copyRouteSummary()">
+                            <span id="copy-icon">📋</span>
+                            <span id="copy-text">Copiar</span>
+                        </button>
+                    </div>
+                    <div class="route-summary-input-row">
+                        <label>Título de la ruta:</label>
+                        <input type="text" id="route-title-input" placeholder="Ej: Ruta 1 / Santi" value="Ruta del día" onchange="updateRouteSummary()">
+                    </div>
+                    <textarea class="route-summary-text" id="route-summary-text" readonly></textarea>
+                </div>
+                
                 <div class="action-row">
                     <button class="btn btn-secondary" onclick="resetForm()">
                         <span>↩️</span>
@@ -2057,6 +2255,7 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         let selectedClients = [];
         let sheetsAvailable = false;  // Whether Google Sheets is configured
         let fixingClientId = null;    // Client being fixed in modal
+        let currentRouteData = null;  // Store current route data for summary
         const MIUSHOP_URL = 'https://maps.app.goo.gl/mk3h6HRg4Mv7ru3GA';
         
         function setEndToMiuShop() {
@@ -2105,19 +2304,37 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         }
         
         function showVerifyConfirmPopup(clientId, clientName) {
+            // Get client details
+            const client = selectedClients.find(c => (c.bsale_id || c.id) == clientId);
+            const bsaleAddress = client ? (client.address || '') : '';
+            const existingCleanAddress = client ? (client.clean_address || '') : '';
+            const existingDistrict = client ? (client.verified_district || client.district || '') : '';
+            
+            // Use existing clean_address or default to bsale address
+            const defaultCleanAddress = existingCleanAddress || bsaleAddress;
+            
             // Create popup overlay
             const popup = document.createElement('div');
             popup.className = 'verify-popup-overlay';
             popup.innerHTML = `
-                <div class="verify-popup">
+                <div class="verify-popup verify-popup-wide">
                     <div class="verify-popup-icon">✓</div>
-                    <h3>¿Confirmar dirección?</h3>
+                    <h3>Verificar dirección</h3>
                     <p><strong>${clientName}</strong></p>
-                    <p class="verify-popup-note">Al verificar confirmas que la ubicación en el mapa es correcta. Esto mejora la precisión de las rutas.</p>
-                    <p class="verify-popup-hint">Puedes editarla después si es necesario.</p>
+                    
+                    <div class="verify-popup-fields">
+                        <label>Dirección formateada (para WhatsApp):</label>
+                        <textarea id="verify-clean-address" rows="3" placeholder="Ej: Av. Benavides 4331\nPiso 3B">${defaultCleanAddress}</textarea>
+                        
+                        <label>Distrito:</label>
+                        <input type="text" id="verify-district" value="${existingDistrict}" placeholder="Ej: San Isidro, Miraflores">
+                    </div>
+                    
+                    <p class="verify-popup-note">Al verificar confirmas que la ubicación es correcta. Edita el formato de la dirección para que aparezca bien en el resumen de ruta.</p>
+                    
                     <div class="verify-popup-actions">
                         <button class="verify-popup-btn cancel" onclick="closeVerifyPopup()">Cancelar</button>
-                        <button class="verify-popup-btn confirm" onclick="confirmVerify(${clientId})">Sí, es correcta</button>
+                        <button class="verify-popup-btn confirm" onclick="confirmVerifyWithAddress(${clientId})">✓ Verificar</button>
                     </div>
                 </div>
             `;
@@ -2127,6 +2344,61 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             popup.addEventListener('click', (e) => {
                 if (e.target === popup) closeVerifyPopup();
             });
+        }
+        
+        async function confirmVerifyWithAddress(clientId) {
+            const cleanAddress = document.getElementById('verify-clean-address').value.trim();
+            const verifiedDistrict = document.getElementById('verify-district').value.trim();
+            
+            closeVerifyPopup();
+            
+            const btn = document.getElementById(`verify-btn-${clientId}`);
+            if (btn) {
+                btn.innerHTML = '...';
+                btn.disabled = true;
+            }
+            
+            try {
+                const response = await fetch(`/api/sheets/clients/${clientId}/verify`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        clean_address: cleanAddress,
+                        verified_district: verifiedDistrict 
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Update local client data
+                    const client = selectedClients.find(c => c.bsale_id == clientId);
+                    if (client) {
+                        client.verified = 'yes';
+                        client.clean_address = cleanAddress;
+                        client.verified_district = verifiedDistrict;
+                    }
+                    const allClient = allClients.find(c => c.bsale_id == clientId);
+                    if (allClient) {
+                        allClient.verified = 'yes';
+                        allClient.clean_address = cleanAddress;
+                        allClient.verified_district = verifiedDistrict;
+                    }
+                    renderSelectedClients();
+                } else {
+                    alert('Error: ' + (data.error || 'No se pudo verificar'));
+                    if (btn) {
+                        btn.innerHTML = '✓';
+                        btn.disabled = false;
+                    }
+                }
+            } catch (e) {
+                alert('Error de conexión: ' + e.message);
+                if (btn) {
+                    btn.innerHTML = '✓';
+                    btn.disabled = false;
+                }
+            }
         }
         
         function closeVerifyPopup() {
@@ -2186,6 +2458,8 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             document.getElementById('modal-client-name').textContent = client.name || `${client.firstName || ''} ${client.lastName || ''}`.trim();
             document.getElementById('modal-current-address').textContent = client.address || 'Sin dirección';
             document.getElementById('modal-maps-link').value = client.maps_link || '';
+            document.getElementById('modal-clean-address').value = client.clean_address || client.address || '';
+            document.getElementById('modal-district').value = client.verified_district || client.district || '';
             document.getElementById('fix-address-modal').classList.add('active');
         }
         
@@ -2196,6 +2470,9 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         
         async function saveFixedAddress() {
             const mapsLink = document.getElementById('modal-maps-link').value.trim();
+            const cleanAddress = document.getElementById('modal-clean-address').value.trim();
+            const verifiedDistrict = document.getElementById('modal-district').value.trim();
+            
             if (!mapsLink) {
                 alert('Por favor ingresa un link de Google Maps');
                 return;
@@ -2206,7 +2483,11 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ maps_link: mapsLink })
+                    body: JSON.stringify({ 
+                        maps_link: mapsLink,
+                        clean_address: cleanAddress,
+                        verified_district: verifiedDistrict
+                    })
                 });
                 const data = await response.json();
                 
@@ -2216,11 +2497,15 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     if (client) {
                         client.verified = 'yes';
                         client.maps_link = mapsLink;
+                        client.clean_address = cleanAddress;
+                        client.verified_district = verifiedDistrict;
                     }
                     const allClient = allClients.find(c => c.bsale_id == fixingClientId);
                     if (allClient) {
                         allClient.verified = 'yes';
                         allClient.maps_link = mapsLink;
+                        allClient.clean_address = cleanAddress;
+                        allClient.verified_district = verifiedDistrict;
                     }
                     
                     closeFixModal();
@@ -2707,6 +2992,9 @@ https://maps.app.goo.gl/ghi789..."></textarea>
         function displayResults(data) {
             document.getElementById('results').style.display = 'block';
             
+            // Store for summary generation
+            currentRouteData = data;
+            
             // Update stats
             document.getElementById('total-distance').textContent = data.total_distance;
             document.getElementById('total-time').textContent = data.total_time;
@@ -2794,6 +3082,108 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     </a>
                 `;
             }
+            
+            // Generate route summary for WhatsApp
+            generateRouteSummary(data);
+        }
+        
+        function generateRouteSummary(data) {
+            const titleInput = document.getElementById('route-title-input');
+            const summaryText = document.getElementById('route-summary-text');
+            
+            const title = titleInput.value || 'Ruta del día';
+            let summary = `*${title}*\n\n`;
+            
+            // Add each stop
+            data.stops.forEach((stop, i) => {
+                if (stop.is_client && stop.client_name) {
+                    // Format client stop for WhatsApp
+                    summary += `${stop.client_name}\n`;
+                    
+                    // Add phone if available
+                    if (stop.phone) {
+                        summary += `${stop.phone}\n`;
+                    }
+                    
+                    // Use clean_address if available, otherwise fall back to address extraction
+                    if (stop.clean_address) {
+                        summary += `${stop.clean_address}\n`;
+                    } else {
+                        // Extract just the address part (after the name and dash)
+                        const addressParts = stop.address.split(' - ');
+                        if (addressParts.length > 1) {
+                            summary += `${addressParts.slice(1).join(' - ')}\n`;
+                        }
+                    }
+                    
+                    // Add district if available
+                    if (stop.district) {
+                        summary += `${stop.district}\n`;
+                    }
+                    
+                    summary += '\n';
+                } else {
+                    // Manual waypoint
+                    summary += `Parada ${i + 1}\n`;
+                    summary += `${stop.address}\n\n`;
+                }
+            });
+            
+            // Add Google Maps links
+            if (data.route_parts && data.route_parts.length > 1) {
+                summary += '---\n\n';
+                data.route_parts.forEach(part => {
+                    summary += `${part.url}\n\n`;
+                });
+            } else if (data.google_maps_url) {
+                summary += '---\n\n';
+                summary += `${data.google_maps_url}\n`;
+            }
+            
+            summaryText.value = summary.trim();
+        }
+        
+        function updateRouteSummary() {
+            if (currentRouteData) {
+                generateRouteSummary(currentRouteData);
+            }
+        }
+        
+        async function copyRouteSummary() {
+            const summaryText = document.getElementById('route-summary-text').value;
+            const copyBtn = document.querySelector('.btn-copy');
+            const copyIcon = document.getElementById('copy-icon');
+            const copyText = document.getElementById('copy-text');
+            
+            try {
+                await navigator.clipboard.writeText(summaryText);
+                
+                // Visual feedback
+                copyBtn.classList.add('copied');
+                copyIcon.textContent = '✓';
+                copyText.textContent = '¡Copiado!';
+                
+                setTimeout(() => {
+                    copyBtn.classList.remove('copied');
+                    copyIcon.textContent = '📋';
+                    copyText.textContent = 'Copiar';
+                }, 2000);
+            } catch (err) {
+                // Fallback for older browsers
+                const textarea = document.getElementById('route-summary-text');
+                textarea.select();
+                document.execCommand('copy');
+                
+                copyBtn.classList.add('copied');
+                copyIcon.textContent = '✓';
+                copyText.textContent = '¡Copiado!';
+                
+                setTimeout(() => {
+                    copyBtn.classList.remove('copied');
+                    copyIcon.textContent = '📋';
+                    copyText.textContent = 'Copiar';
+                }, 2000);
+            }
         }
         
         function showError(message) {
@@ -2806,18 +3196,34 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             document.getElementById('results').style.display = 'none';
             document.getElementById('form-section').style.display = 'block';
             document.getElementById('error-container').innerHTML = '';
+            currentRouteData = null;
+            document.getElementById('route-summary-text').value = '';
+            document.getElementById('route-title-input').value = 'Ruta del día';
         }
     </script>
     
     <!-- Fix Address Modal -->
     <div class="modal-overlay" id="fix-address-modal">
-        <div class="modal-content">
+        <div class="modal-content modal-content-wide">
             <h3 class="modal-title">📍 Corregir Dirección</h3>
             <div class="modal-body">
                 <p><strong id="modal-client-name"></strong></p>
-                <p>Dirección actual: <span id="modal-current-address"></span></p>
-                <p>Pega un link de Google Maps con la ubicación correcta:</p>
-                <input type="text" class="modal-input" id="modal-maps-link" placeholder="https://maps.app.goo.gl/...">
+                <p class="modal-bsale-address">Dirección Bsale: <span id="modal-current-address"></span></p>
+                
+                <div class="modal-field">
+                    <label>Link de Google Maps:</label>
+                    <input type="text" class="modal-input" id="modal-maps-link" placeholder="https://maps.app.goo.gl/...">
+                </div>
+                
+                <div class="modal-field">
+                    <label>Dirección formateada (para WhatsApp):</label>
+                    <textarea class="modal-input" id="modal-clean-address" rows="3" placeholder="Ej: Av. Benavides 4331&#10;Piso 3B"></textarea>
+                </div>
+                
+                <div class="modal-field">
+                    <label>Distrito:</label>
+                    <input type="text" class="modal-input" id="modal-district" placeholder="Ej: Miraflores, San Isidro">
+                </div>
             </div>
             <div class="modal-actions">
                 <button class="modal-btn modal-btn-cancel" onclick="closeFixModal()">Cancelar</button>
@@ -2909,7 +3315,11 @@ def verify_client_address(bsale_id):
     """Mark a client's address as verified in Google Sheet."""
     try:
         from sheets import verify_client
-        success = verify_client(bsale_id)
+        data = request.json or {}
+        clean_address = data.get('clean_address')
+        verified_district = data.get('verified_district')
+        
+        success = verify_client(bsale_id, clean_address=clean_address, verified_district=verified_district)
         if success:
             return jsonify({"status": "success", "message": "Dirección verificada"})
         return jsonify({"error": "No se pudo verificar la dirección"}), 400
@@ -2931,9 +3341,12 @@ def fix_client_address(bsale_id):
     if 'google.com/maps' not in maps_link and 'goo.gl' not in maps_link and 'maps.app' not in maps_link:
         return jsonify({"error": "El link debe ser una URL de Google Maps"}), 400
     
+    clean_address = data.get('clean_address')
+    verified_district = data.get('verified_district')
+    
     try:
         from sheets import fix_client_address as fix_address
-        success = fix_address(bsale_id, maps_link)
+        success = fix_address(bsale_id, maps_link, clean_address=clean_address, verified_district=verified_district)
         if success:
             return jsonify({"status": "success", "message": "Dirección corregida y verificada"})
         return jsonify({"error": "No se pudo actualizar la dirección"}), 400
@@ -3004,12 +3417,18 @@ def optimize():
             coords = None
             client_name = ""
             client_address = ""
+            client_phone = ""
+            client_clean_address = ""
+            client_district = ""
             
             # First, try Google Sheets (verified addresses with maps_link)
             sheets_client = sheets_clients.get(str(client_id))
             if sheets_client:
                 client_name = sheets_client.get('name', '')
                 client_address = sheets_client.get('address', '')
+                client_phone = sheets_client.get('phone', '')
+                client_clean_address = sheets_client.get('clean_address', '')
+                client_district = sheets_client.get('verified_district', '') or sheets_client.get('district', '')
                 
                 # Use maps_link if available (especially for verified clients)
                 maps_link = sheets_client.get('maps_link', '')
@@ -3037,6 +3456,8 @@ def optimize():
                 if bsale_client:
                     client_name = f"{bsale_client.get('firstName', '')} {bsale_client.get('lastName', '')}".strip()
                     client_address = bsale_client.get('address', '')
+                    client_phone = bsale_client.get('phone', '')
+                    client_district = bsale_client.get('district', '')
                     coords = geocode_address(
                         client_address,
                         bsale_client.get('city', ''),
@@ -3049,6 +3470,9 @@ def optimize():
                     'coords': coords,
                     'client_name': client_name,
                     'address': client_address,
+                    'phone': client_phone,
+                    'clean_address': client_clean_address,
+                    'district': client_district,
                     'is_client': True
                 })
     
@@ -3061,6 +3485,9 @@ def optimize():
                 'coords': coords,
                 'client_name': None,
                 'address': None,
+                'phone': None,
+                'clean_address': None,
+                'district': None,
                 'is_client': False
             })
     
@@ -3106,7 +3533,13 @@ def optimize():
             "coords": coords,
             "address": address_display,
             "distance": "--",
-            "time": "--"
+            "time": "--",
+            # Include client details for route summary
+            "client_name": info.get('client_name'),
+            "phone": info.get('phone'),
+            "clean_address": info.get('clean_address'),
+            "district": info.get('district'),
+            "is_client": info.get('is_client', False)
         }
         if i < len(legs):
             leg = legs[i]

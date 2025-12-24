@@ -19,7 +19,9 @@ SHEET_COLUMNS = [
     "company",
     "phone",
     "address",
+    "clean_address",      # User-editable formatted address for WhatsApp messages
     "district",
+    "verified_district",  # District extracted from verified maps link
     "city",
     "maps_link",
     "lat",
@@ -184,7 +186,9 @@ def get_all_clients() -> list[dict]:
                 "company": record.get("company", ""),
                 "phone": record.get("phone", ""),
                 "address": record.get("address", ""),
+                "clean_address": record.get("clean_address", ""),
                 "district": record.get("district", ""),
+                "verified_district": record.get("verified_district", ""),
                 "city": record.get("city", ""),
                 "maps_link": record.get("maps_link", ""),
                 "lat": record.get("lat", ""),
@@ -335,7 +339,9 @@ def add_clients(clients: list[dict]) -> int:
                 client.get("company", ""),          # company
                 client.get("phone", ""),            # phone
                 client.get("address", ""),          # address
+                "",                                 # clean_address (user editable)
                 client.get("district", ""),         # district
+                "",                                 # verified_district (from maps)
                 client.get("city", ""),             # city
                 maps_link,                          # maps_link
                 str(lat) if lat else "",            # lat
@@ -358,17 +364,32 @@ def add_clients(clients: list[dict]) -> int:
         return 0
 
 
-def verify_client(bsale_id: int) -> bool:
+def verify_client(bsale_id: int, clean_address: str = None, verified_district: str = None) -> bool:
     """
     Mark a client's address as verified.
+    Optionally update clean_address and verified_district.
     """
-    return update_client(bsale_id, {"verified": "yes"})
+    updates = {"verified": "yes"}
+    
+    if clean_address is not None:
+        updates["clean_address"] = clean_address
+    
+    if verified_district is not None:
+        updates["verified_district"] = verified_district
+    
+    return update_client(bsale_id, updates)
 
 
-def fix_client_address(bsale_id: int, new_maps_link: str) -> bool:
+def fix_client_address(bsale_id: int, new_maps_link: str, clean_address: str = None, verified_district: str = None) -> bool:
     """
     Update a client's Google Maps link and mark as verified.
     Expands short links and extracts coordinates automatically.
+    
+    Args:
+        bsale_id: The Bsale client ID
+        new_maps_link: Google Maps URL
+        clean_address: Optional user-formatted address for display
+        verified_district: Optional district name extracted from maps
     """
     # Expand short link if needed (e.g., maps.app.goo.gl/abc123)
     expanded_url = expand_short_url(new_maps_link)
@@ -386,6 +407,14 @@ def fix_client_address(bsale_id: int, new_maps_link: str) -> bool:
     if lat is not None and lng is not None:
         updates["lat"] = lat
         updates["lng"] = lng
+    
+    # Add clean address if provided
+    if clean_address is not None:
+        updates["clean_address"] = clean_address
+    
+    # Add verified district if provided
+    if verified_district is not None:
+        updates["verified_district"] = verified_district
     
     return update_client(bsale_id, updates)
 
