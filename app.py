@@ -395,22 +395,23 @@ HTML_TEMPLATE = """
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-base: #030712;
-            --bg-surface: #0f1729;
-            --bg-elevated: #1a2744;
-            --bg-hover: #243352;
-            --accent-primary: #22d3ee;
-            --accent-secondary: #a78bfa;
-            --accent-success: #4ade80;
-            --accent-warning: #fbbf24;
-            --accent-error: #f87171;
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --border-subtle: rgba(148, 163, 184, 0.1);
-            --border-default: rgba(148, 163, 184, 0.2);
-            --glow-primary: rgba(34, 211, 238, 0.15);
-            --glow-secondary: rgba(167, 139, 250, 0.15);
+            /* Adoptamiu Pink Theme 🐱 */
+            --bg-base: #fff5f7;
+            --bg-surface: #ffffff;
+            --bg-elevated: #fef1f3;
+            --bg-hover: #fde4e8;
+            --accent-primary: #e91e63;
+            --accent-secondary: #f48fb1;
+            --accent-success: #4caf50;
+            --accent-warning: #ff9800;
+            --accent-error: #f44336;
+            --text-primary: #2d2d2d;
+            --text-secondary: #666666;
+            --text-muted: #999999;
+            --border-subtle: rgba(233, 30, 99, 0.1);
+            --border-default: rgba(233, 30, 99, 0.25);
+            --glow-primary: rgba(233, 30, 99, 0.12);
+            --glow-secondary: rgba(244, 143, 177, 0.15);
         }
         
         * {
@@ -431,26 +432,25 @@ HTML_TEMPLATE = """
             overflow-x: hidden;
         }
         
-        /* Animated background */
+        /* Soft pink background with subtle pattern */
         .bg-pattern {
             position: fixed;
             inset: 0;
             z-index: -1;
             background: 
-                radial-gradient(ellipse 80% 50% at 50% -20%, var(--glow-primary), transparent),
-                radial-gradient(ellipse 60% 40% at 100% 100%, var(--glow-secondary), transparent),
-                radial-gradient(ellipse 40% 30% at 0% 80%, rgba(74, 222, 128, 0.08), transparent);
+                radial-gradient(ellipse 100% 60% at 50% -10%, rgba(244, 143, 177, 0.25), transparent),
+                radial-gradient(ellipse 80% 50% at 100% 100%, rgba(233, 30, 99, 0.08), transparent),
+                radial-gradient(ellipse 60% 40% at 0% 80%, rgba(244, 143, 177, 0.12), transparent);
         }
         
         .grid-overlay {
             position: fixed;
             inset: 0;
             z-index: -1;
-            background-image: 
-                linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+            /* Subtle paw print pattern overlay */
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cpath fill='%23e91e63' d='M30 25c-2.5 0-4.5 2-4.5 4.5s2 4.5 4.5 4.5 4.5-2 4.5-4.5-2-4.5-4.5-4.5zm-8-4c-1.5 0-3 1.5-3 3s1.5 3 3 3 3-1.5 3-3-1.5-3-3-3zm16 0c-1.5 0-3 1.5-3 3s1.5 3 3 3 3-1.5 3-3-1.5-3-3-3zm-12 10c-1.5 0-3 1.5-3 3s1.5 3 3 3 3-1.5 3-3-1.5-3-3-3zm8 0c-1.5 0-3 1.5-3 3s1.5 3 3 3 3-1.5 3-3-1.5-3-3-3z'/%3E%3C/svg%3E");
             background-size: 60px 60px;
-            mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
         }
         
         /* Layout */
@@ -475,22 +475,23 @@ HTML_TEMPLATE = """
         }
         
         .logo-icon {
-            width: 48px;
-            height: 48px;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-            border-radius: 14px;
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #f8bbd9, #f48fb1);
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
-            box-shadow: 0 8px 32px var(--glow-primary);
+            font-size: 28px;
+            box-shadow: 0 4px 20px rgba(233, 30, 99, 0.2);
+            border: 3px solid white;
         }
         
         .logo-text {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 2rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #e91e63, #f48fb1);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -508,17 +509,17 @@ HTML_TEMPLATE = """
         /* Cards */
         .card {
             background: var(--bg-surface);
-            border: 1px solid var(--border-subtle);
-            border-radius: 20px;
+            border: 2px solid var(--border-subtle);
+            border-radius: 24px;
             padding: 28px;
             margin-bottom: 20px;
-            backdrop-filter: blur(20px);
+            box-shadow: 0 4px 20px rgba(233, 30, 99, 0.06);
             transition: all 0.3s ease;
         }
         
         .card:hover {
             border-color: var(--border-default);
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 8px 30px rgba(233, 30, 99, 0.1);
         }
         
         .card-bsale {
@@ -534,14 +535,14 @@ HTML_TEMPLATE = """
         }
         
         .card-icon {
-            width: 40px;
-            height: 40px;
-            background: var(--bg-elevated);
-            border-radius: 12px;
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, #fce4ec, #f8bbd9);
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 18px;
+            font-size: 20px;
         }
         
         .card-title {
@@ -554,19 +555,24 @@ HTML_TEMPLATE = """
         }
         
         .refresh-btn {
-            background: rgba(167, 139, 250, 0.15);
-            border: 1px solid rgba(167, 139, 250, 0.3);
-            border-radius: 8px;
-            padding: 6px 10px;
+            background: rgba(244, 143, 177, 0.2);
+            border: 1px solid rgba(233, 30, 99, 0.25);
+            border-radius: 50%;
+            padding: 8px;
             cursor: pointer;
             transition: all 0.2s ease;
             font-size: 0.9rem;
             line-height: 1;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .refresh-btn:hover {
-            background: rgba(167, 139, 250, 0.25);
-            border-color: var(--accent-secondary);
+            background: rgba(244, 143, 177, 0.35);
+            border-color: var(--accent-primary);
         }
         
         .refresh-btn.loading .refresh-icon {
@@ -643,11 +649,11 @@ HTML_TEMPLATE = """
         .input-field {
             width: 100%;
             padding: 16px 18px;
-            background: var(--bg-base);
-            border: 1px solid var(--border-subtle);
-            border-radius: 12px;
+            background: #fef7f9;
+            border: 2px solid var(--border-subtle);
+            border-radius: 16px;
             color: var(--text-primary);
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'Plus Jakarta Sans', sans-serif;
             font-size: 0.9rem;
             transition: all 0.2s ease;
         }
@@ -682,20 +688,20 @@ HTML_TEMPLATE = """
         }
         
         .input-prefilled {
-            border-color: rgba(74, 222, 128, 0.3);
-            background: rgba(74, 222, 128, 0.05);
+            border-color: rgba(233, 30, 99, 0.3);
+            background: rgba(233, 30, 99, 0.05);
         }
         
         .prefilled-label {
             display: inline-block;
             margin-top: 8px;
             padding: 6px 12px;
-            background: rgba(74, 222, 128, 0.15);
-            border: 1px solid rgba(74, 222, 128, 0.3);
-            border-radius: 6px;
+            background: rgba(233, 30, 99, 0.1);
+            border: 1px solid rgba(233, 30, 99, 0.25);
+            border-radius: 20px;
             font-size: 0.8rem;
-            font-weight: 500;
-            color: var(--accent-success);
+            font-weight: 600;
+            color: var(--accent-primary);
         }
         
         .quick-fill-btn {
@@ -704,26 +710,26 @@ HTML_TEMPLATE = """
             gap: 6px;
             margin-top: 8px;
             padding: 8px 14px;
-            background: rgba(167, 139, 250, 0.15);
-            border: 1px solid rgba(167, 139, 250, 0.3);
-            border-radius: 8px;
+            background: rgba(244, 143, 177, 0.2);
+            border: 1px solid rgba(233, 30, 99, 0.25);
+            border-radius: 20px;
             font-size: 0.8rem;
-            font-weight: 500;
-            color: var(--accent-secondary);
+            font-weight: 600;
+            color: var(--accent-primary);
             cursor: pointer;
             transition: all 0.2s ease;
             font-family: inherit;
         }
         
         .quick-fill-btn:hover {
-            background: rgba(167, 139, 250, 0.25);
-            border-color: var(--accent-secondary);
+            background: rgba(244, 143, 177, 0.35);
+            border-color: var(--accent-primary);
         }
         
         .quick-fill-btn.active {
-            background: rgba(74, 222, 128, 0.15);
-            border-color: rgba(74, 222, 128, 0.3);
-            color: var(--accent-success);
+            background: rgba(233, 30, 99, 0.15);
+            border-color: rgba(233, 30, 99, 0.4);
+            color: var(--accent-primary);
         }
         
         /* Buttons */
@@ -745,14 +751,14 @@ HTML_TEMPLATE = """
         
         .btn-primary {
             width: 100%;
-            background: linear-gradient(135deg, var(--accent-primary), #06b6d4);
-            color: var(--bg-base);
-            box-shadow: 0 4px 20px var(--glow-primary);
+            background: linear-gradient(135deg, #e91e63, #f48fb1);
+            color: white;
+            box-shadow: 0 4px 20px rgba(233, 30, 99, 0.3);
         }
         
         .btn-primary:hover {
             transform: translateY(-3px);
-            box-shadow: 0 8px 40px var(--glow-primary);
+            box-shadow: 0 8px 30px rgba(233, 30, 99, 0.4);
         }
         
         .btn-primary:active {
@@ -760,9 +766,9 @@ HTML_TEMPLATE = """
         }
         
         .btn-secondary {
-            background: var(--bg-elevated);
-            color: var(--text-primary);
-            border: 1px solid var(--border-subtle);
+            background: white;
+            color: var(--accent-primary);
+            border: 2px solid var(--border-default);
         }
         
         .btn-secondary:hover {
@@ -851,9 +857,9 @@ HTML_TEMPLATE = """
             bottom: 24px;
             width: 2px;
             background: linear-gradient(180deg, 
-                var(--accent-primary) 0%, 
-                var(--accent-secondary) 50%, 
-                var(--accent-success) 100%);
+                #e91e63 0%, 
+                #f48fb1 50%, 
+                #4caf50 100%);
             border-radius: 2px;
         }
         
@@ -885,17 +891,17 @@ HTML_TEMPLATE = """
         }
         
         .timeline-item.start .timeline-marker {
-            background: var(--accent-primary);
-            border-color: var(--accent-primary);
-            color: var(--bg-base);
-            box-shadow: 0 0 20px var(--glow-primary);
+            background: #e91e63;
+            border-color: #e91e63;
+            color: white;
+            box-shadow: 0 0 15px rgba(233, 30, 99, 0.3);
         }
         
         .timeline-item.end .timeline-marker {
-            background: var(--accent-success);
-            border-color: var(--accent-success);
-            color: var(--bg-base);
-            box-shadow: 0 0 20px rgba(74, 222, 128, 0.3);
+            background: #4caf50;
+            border-color: #4caf50;
+            color: white;
+            box-shadow: 0 0 15px rgba(76, 175, 80, 0.3);
         }
         
         .timeline-content {
@@ -1048,13 +1054,13 @@ HTML_TEMPLATE = """
             right: 0;
             max-height: 320px;
             overflow-y: auto;
-            background: var(--bg-elevated);
-            border: 1px solid var(--border-default);
-            border-radius: 12px;
+            background: white;
+            border: 2px solid var(--border-default);
+            border-radius: 16px;
             margin-top: 8px;
             z-index: 9999;
             display: none;
-            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 10px 40px rgba(233, 30, 99, 0.15);
         }
         
         .client-dropdown.active {
@@ -1077,7 +1083,7 @@ HTML_TEMPLATE = """
         }
         
         .client-option.selected {
-            background: rgba(167, 139, 250, 0.15);
+            background: rgba(233, 30, 99, 0.1);
         }
         
         .client-name {
@@ -1109,10 +1115,10 @@ HTML_TEMPLATE = """
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 8px 12px;
-            background: rgba(167, 139, 250, 0.2);
-            border: 1px solid rgba(167, 139, 250, 0.3);
-            border-radius: 8px;
+            padding: 8px 14px;
+            background: linear-gradient(135deg, rgba(244, 143, 177, 0.2), rgba(233, 30, 99, 0.1));
+            border: 1px solid rgba(233, 30, 99, 0.25);
+            border-radius: 20px;
             font-size: 0.85rem;
             color: var(--text-primary);
         }
@@ -1120,7 +1126,7 @@ HTML_TEMPLATE = """
         .client-tag-remove {
             background: none;
             border: none;
-            color: var(--accent-error);
+            color: var(--accent-primary);
             cursor: pointer;
             font-size: 1rem;
             line-height: 1;
@@ -1149,8 +1155,8 @@ HTML_TEMPLATE = """
         .loading-clients .mini-spinner {
             width: 20px;
             height: 20px;
-            border: 2px solid var(--border-subtle);
-            border-top-color: var(--accent-secondary);
+            border: 2px solid rgba(233, 30, 99, 0.2);
+            border-top-color: #e91e63;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             display: inline-block;
@@ -1173,7 +1179,7 @@ HTML_TEMPLATE = """
         
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, var(--accent-secondary), var(--accent-primary));
+            background: linear-gradient(90deg, #f48fb1, #e91e63);
             border-radius: 3px;
             transition: width 0.3s ease;
         }
@@ -1240,10 +1246,10 @@ HTML_TEMPLATE = """
     <div class="app-container">
         <header class="app-header">
             <div class="logo">
-                <div class="logo-icon">🚗</div>
+                <div class="logo-icon">🐱</div>
                 <span class="logo-text">MiuRuta</span>
             </div>
-            <p class="tagline">Optimiza tus rutas de entrega en Lima. Selecciona clientes de Bsale o pega links de Google Maps para obtener el orden más eficiente.</p>
+            <p class="tagline">Optimiza las rutas de entrega de Adoptamiu 🐾 Selecciona clientes de Bsale o pega links de Google Maps para obtener el orden más eficiente.</p>
         </header>
         
         <main id="form-section">
