@@ -20,9 +20,16 @@ app = Flask(__name__)
 GOOGLE_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
+# Bsale API configuration
+BSALE_ACCESS_TOKEN = os.getenv("BSALE_ACCESS_TOKEN")
+BSALE_API_URL = "https://api.bsale.io/v1"
+
 # Basic Auth credentials from environment
 AUTH_USERNAME = os.getenv("AUTH_USERNAME", "admin")
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "admin")
+
+# Cache for Bsale clients (loaded once on startup)
+CLIENTS_CACHE = {"clients": [], "loaded": False, "loading_progress": 0, "total_count": 0}
 
 
 def check_auth(username, password):
@@ -190,13 +197,136 @@ def format_distance(meters):
     return f"{meters} m"
 
 
+def geocode_address(address: str, city: str = "", municipality: str = "") -> tuple[float, float] | None:
+    """Convert an address string to coordinates using Google Geocoding API."""
+    if not GOOGLE_API_KEY:
+        return None
+    
+    # Build full address string
+    full_address = address
+    if municipality:
+        full_address += f", {municipality}"
+    if city:
+        full_address += f", {city}"
+    full_address += ", Lima, Peru"
+    
+    url = "https://maps.googleapis.com/maps/api/geocode/json"
+    params = {
+        "address": full_address,
+        "key": GOOGLE_API_KEY,
+        "language": "es",
+        "region": "pe"
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get("status") == "OK" and data.get("results"):
+            location = data["results"][0]["geometry"]["location"]
+            return (location["lat"], location["lng"])
+        return None
+    except requests.RequestException:
+        return None
+
+
+def fetch_bsale_clients(use_cache: bool = True) -> list[dict]:
+    """Fetch all active clients from Bsale API (with caching)."""
+    global CLIENTS_CACHE
+    
+    # Return cached clients if available
+    if use_cache and CLIENTS_CACHE["loaded"]:
+        return CLIENTS_CACHE["clients"]
+    
+    if not BSALE_ACCESS_TOKEN:
+        print("BSALE_ACCESS_TOKEN not configured")
+        return []
+    
+    clients = []
+    offset = 0
+    limit = 50
+    
+    headers = {
+        "access_token": BSALE_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        while True:
+            response = requests.get(
+                f"{BSALE_API_URL}/clients.json",
+                headers=headers,
+                params={"limit": limit, "offset": offset, "state": 0},
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            total_count = data.get("count", 0)
+            items = data.get("items", [])
+            
+            # Update progress in cache
+            CLIENTS_CACHE["total_count"] = total_count
+            CLIENTS_CACHE["loading_progress"] = min(offset + len(items), total_count)
+            
+            if offset == 0:
+                print(f"Bsale API: Total clients to fetch: {total_count}")
+            
+            if not items:
+                break
+            
+            for client in items:
+                address = client.get("address", "")
+                clients.append({
+                    "id": client.get("id"),
+                    "firstName": client.get("firstName", ""),
+                    "lastName": client.get("lastName", ""),
+                    "company": client.get("company", ""),
+                    "address": address,
+                    "city": client.get("city", ""),
+                    "municipality": client.get("municipality", ""),
+                    "code": client.get("code", "")
+                })
+            
+            # Update clients in cache progressively
+            CLIENTS_CACHE["clients"] = clients.copy()
+            
+            offset += limit
+            if offset >= total_count:
+                break
+        
+        print(f"Total Bsale clients fetched: {len(clients)}")
+        
+        # Mark as fully loaded
+        CLIENTS_CACHE["clients"] = clients
+        CLIENTS_CACHE["loaded"] = True
+        CLIENTS_CACHE["loading_progress"] = total_count
+        
+        return clients
+    except requests.RequestException as e:
+        print(f"Error fetching Bsale clients: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"Response content: {e.response.text}")
+        return []
+
+
+def preload_clients():
+    """Preload clients on app startup."""
+    print("Preloading Bsale clients in background...")
+    import threading
+    thread = threading.Thread(target=fetch_bsale_clients, args=(False,))
+    thread.daemon = True
+    thread.start()
+
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RutaLima - Optimizador de Rutas</title>
+    <title>MiuRuta - Optimizador de Rutas</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -715,6 +845,198 @@ HTML_TEMPLATE = """
             margin-top: 16px;
         }
         
+        /* Bsale Client Selector */
+        .client-selector {
+            position: relative;
+        }
+        
+        .client-search {
+            width: 100%;
+            padding: 16px 18px;
+            padding-right: 45px;
+            background: var(--bg-base);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+        }
+        
+        .client-search::placeholder {
+            color: var(--text-muted);
+        }
+        
+        .client-search:focus {
+            outline: none;
+            border-color: var(--accent-secondary);
+            box-shadow: 0 0 0 4px var(--glow-secondary);
+        }
+        
+        .client-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 280px;
+            overflow-y: auto;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            margin-top: 8px;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .client-dropdown.active {
+            display: block;
+        }
+        
+        .client-option {
+            padding: 14px 18px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-subtle);
+            transition: background 0.15s;
+        }
+        
+        .client-option:last-child {
+            border-bottom: none;
+        }
+        
+        .client-option:hover {
+            background: var(--bg-hover);
+        }
+        
+        .client-option.selected {
+            background: rgba(167, 139, 250, 0.15);
+        }
+        
+        .client-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .client-address {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .client-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        
+        .selected-clients {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
+        .client-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(167, 139, 250, 0.2);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+        
+        .client-tag-remove {
+            background: none;
+            border: none;
+            color: var(--accent-error);
+            cursor: pointer;
+            font-size: 1rem;
+            line-height: 1;
+            padding: 0;
+            opacity: 0.7;
+            transition: opacity 0.15s;
+        }
+        
+        .client-tag-remove:hover {
+            opacity: 1;
+        }
+        
+        .no-clients {
+            padding: 20px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        
+        .loading-clients {
+            padding: 20px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        
+        .loading-clients .mini-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-subtle);
+            border-top-color: var(--accent-secondary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        .progress-container {
+            margin-top: 12px;
+            padding: 0 4px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-base);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-secondary), var(--accent-primary));
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 6px;
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 20px 0;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-subtle);
+        }
+        
         /* Footer */
         .app-footer {
             text-align: center;
@@ -741,9 +1063,9 @@ HTML_TEMPLATE = """
         <header class="app-header">
             <div class="logo">
                 <div class="logo-icon">🚗</div>
-                <span class="logo-text">RutaLima</span>
+                <span class="logo-text">MiuRuta</span>
             </div>
-            <p class="tagline">Optimiza tus rutas de entrega en Lima. Pega tus links de Google Maps y obtén el orden más eficiente.</p>
+            <p class="tagline">Optimiza tus rutas de entrega en Lima. Selecciona clientes de Bsale o pega links de Google Maps para obtener el orden más eficiente.</p>
         </header>
         
         <main id="form-section">
@@ -774,21 +1096,49 @@ HTML_TEMPLATE = """
             
             <div class="card">
                 <div class="card-header">
+                    <div class="card-icon">👥</div>
+                    <span class="card-title">Clientes de Bsale</span>
+                </div>
+                
+                <div class="input-group">
+                    <label class="input-label">
+                        <span class="input-label-icon">🔍</span>
+                        Buscar y seleccionar clientes
+                    </label>
+                    <div class="client-selector">
+                        <input type="text" id="client-search" class="client-search" placeholder="Escribe para buscar clientes..." autocomplete="off">
+                        <div class="client-dropdown" id="client-dropdown">
+                            <div class="loading-clients" id="loading-clients">
+                                <span class="mini-spinner"></span>
+                                Cargando clientes...
+                            </div>
+                        </div>
+                    </div>
+                    <div class="selected-clients" id="selected-clients"></div>
+                    <p class="input-hint">
+                        <span>💡</span>
+                        Los clientes seleccionados se agregarán como paradas de entrega
+                    </p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
                     <div class="card-icon">📦</div>
-                    <span class="card-title">Paradas de Entrega</span>
+                    <span class="card-title">Paradas Adicionales</span>
                 </div>
                 
                 <div class="input-group">
                     <label class="input-label">
                         <span class="input-label-icon">🔗</span>
-                        Links de Google Maps (uno por línea)
+                        Links de Google Maps (opcional, uno por línea)
                     </label>
                     <textarea id="stops" class="input-field" placeholder="https://maps.app.goo.gl/abc123...
 https://maps.app.goo.gl/def456...
 https://maps.app.goo.gl/ghi789..."></textarea>
                     <p class="input-hint">
                         <span>💡</span>
-                        Soporta links cortos (maps.app.goo.gl) y links completos de Google Maps
+                        Agrega paradas adicionales que no estén en Bsale
                     </p>
                 </div>
             </div>
@@ -848,20 +1198,172 @@ https://maps.app.goo.gl/ghi789..."></textarea>
     </div>
 
     <script>
+        // Global state
+        let allClients = [];
+        let selectedClients = [];
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadClients();
+            setupClientSearch();
+        });
+        
+        async function loadClients() {
+            try {
+                const response = await fetch('/api/clients', { credentials: 'same-origin' });
+                const data = await response.json();
+                allClients = data.clients || [];
+                
+                const dropdown = document.getElementById('client-dropdown');
+                const loadingEl = document.getElementById('loading-clients');
+                
+                // If still loading on server, show progress and retry
+                if (data.loading) {
+                    const progress = data.progress || 0;
+                    const total = data.total || 0;
+                    const percent = total > 0 ? Math.round((progress / total) * 100) : 0;
+                    
+                    loadingEl.innerHTML = `
+                        <div class="loading-clients">
+                            <span class="mini-spinner"></span> Cargando clientes de Bsale...
+                            <div class="progress-container">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${percent}%"></div>
+                                </div>
+                                <div class="progress-text">${progress.toLocaleString()} / ${total.toLocaleString()} clientes (${percent}%)</div>
+                            </div>
+                        </div>
+                    `;
+                    setTimeout(loadClients, 1000);
+                    return;
+                }
+                
+                if (allClients.length === 0) {
+                    loadingEl.innerHTML = '<div class="no-clients">No se encontraron clientes</div>';
+                } else {
+                    loadingEl.style.display = 'none';
+                    renderClientOptions(allClients);
+                }
+            } catch (err) {
+                console.error('Error loading clients:', err);
+                document.getElementById('loading-clients').innerHTML = 
+                    '<div class="no-clients">Error al cargar clientes</div>';
+            }
+        }
+        
+        function setupClientSearch() {
+            const searchInput = document.getElementById('client-search');
+            const dropdown = document.getElementById('client-dropdown');
+            
+            searchInput.addEventListener('focus', () => {
+                dropdown.classList.add('active');
+            });
+            
+            searchInput.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                if (!query) {
+                    renderClientOptions(allClients);
+                    return;
+                }
+                const filtered = allClients.filter(c => {
+                    const firstName = (c.firstName || '').toLowerCase();
+                    const lastName = (c.lastName || '').toLowerCase();
+                    const company = (c.company || '').toLowerCase();
+                    const address = (c.address || '').toLowerCase();
+                    const code = (c.code || '').toLowerCase();
+                    return firstName.includes(query) ||
+                           lastName.includes(query) ||
+                           company.includes(query) ||
+                           address.includes(query) ||
+                           code.includes(query);
+                });
+                renderClientOptions(filtered);
+            });
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.client-selector')) {
+                    dropdown.classList.remove('active');
+                }
+            });
+        }
+        
+        function renderClientOptions(clients) {
+            const dropdown = document.getElementById('client-dropdown');
+            const loadingEl = document.getElementById('loading-clients');
+            
+            // Clear previous options (keep loading element)
+            dropdown.innerHTML = '';
+            
+            if (clients.length === 0) {
+                dropdown.innerHTML = '<div class="no-clients">No se encontraron clientes</div>';
+                return;
+            }
+            
+            clients.forEach(client => {
+                const isSelected = selectedClients.some(c => c.id === client.id);
+                const div = document.createElement('div');
+                div.className = 'client-option' + (isSelected ? ' selected' : '');
+                div.innerHTML = `
+                    <div class="client-name">${client.firstName} ${client.lastName}</div>
+                    <div class="client-address">${client.address}${client.municipality ? ', ' + client.municipality : ''}</div>
+                    ${client.code ? '<div class="client-code">' + client.code + '</div>' : ''}
+                `;
+                div.onclick = () => toggleClient(client);
+                dropdown.appendChild(div);
+            });
+        }
+        
+        function toggleClient(client) {
+            const idx = selectedClients.findIndex(c => c.id === client.id);
+            if (idx >= 0) {
+                selectedClients.splice(idx, 1);
+            } else {
+                selectedClients.push(client);
+                // Clear search field when selecting a client
+                document.getElementById('client-search').value = '';
+            }
+            renderSelectedClients();
+            
+            // Show all clients after selection
+            renderClientOptions(allClients);
+        }
+        
+        function renderSelectedClients() {
+            const container = document.getElementById('selected-clients');
+            container.innerHTML = selectedClients.map(c => `
+                <span class="client-tag">
+                    ${c.firstName} ${c.lastName}
+                    <button class="client-tag-remove" onclick="removeClient(${c.id})">×</button>
+                </span>
+            `).join('');
+        }
+        
+        function removeClient(clientId) {
+            selectedClients = selectedClients.filter(c => c.id !== clientId);
+            renderSelectedClients();
+            renderClientOptions(allClients);
+        }
+        
         async function optimizeRoute() {
             const startUrl = document.getElementById('start').value.trim();
             const endUrl = document.getElementById('end').value.trim();
             const stopsText = document.getElementById('stops').value.trim();
             
-            if (!startUrl || !endUrl || !stopsText) {
-                showError('Por favor completa todos los campos');
+            // Get manual URL stops
+            const manualStops = stopsText ? stopsText.split('\\n').filter(url => url.trim()) : [];
+            
+            // Get selected client IDs
+            const clientIds = selectedClients.map(c => c.id);
+            
+            // Need at least one stop (client or manual)
+            if (clientIds.length === 0 && manualStops.length === 0) {
+                showError('Selecciona al menos un cliente o agrega un link de Google Maps');
                 return;
             }
             
-            const stops = stopsText.split('\\n').filter(url => url.trim());
-            
-            if (stops.length === 0) {
-                showError('Agrega al menos una parada de entrega');
+            if (!startUrl || !endUrl) {
+                showError('Por favor ingresa los puntos de inicio y fin');
                 return;
             }
             
@@ -875,10 +1377,12 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 const response = await fetch('/optimize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({
                         start: startUrl,
                         end: endUrl,
-                        stops: stops
+                        stops: manualStops,
+                        clientIds: clientIds
                     })
                 });
                 
@@ -991,6 +1495,20 @@ def index():
     return render_template_string(HTML_TEMPLATE)
 
 
+@app.route('/api/clients')
+@requires_auth
+def get_clients():
+    """Fetch clients from Bsale API."""
+    clients = CLIENTS_CACHE["clients"]  # Get current cached clients (even if still loading)
+    return jsonify({
+        "clients": clients,
+        "loading": not CLIENTS_CACHE["loaded"],
+        "count": len(clients),
+        "progress": CLIENTS_CACHE["loading_progress"],
+        "total": CLIENTS_CACHE["total_count"]
+    })
+
+
 @app.route('/optimize', methods=['POST'])
 @requires_auth
 def optimize():
@@ -999,6 +1517,7 @@ def optimize():
     start_url = data.get('start', '')
     end_url = data.get('end', '')
     stop_urls = data.get('stops', [])
+    client_ids = data.get('clientIds', [])
     
     # Parse coordinates
     origin = extract_coords_from_url(start_url)
@@ -1010,10 +1529,42 @@ def optimize():
         return jsonify({"error": f"No se pudo extraer coordenadas del fin: {end_url}"})
     
     waypoints = []
+    waypoint_info = []  # Store extra info for each waypoint
+    
+    # Get coordinates from Bsale clients
+    if client_ids:
+        all_clients = fetch_bsale_clients()
+        client_map = {c['id']: c for c in all_clients}
+        
+        for client_id in client_ids:
+            client = client_map.get(client_id)
+            if client:
+                # Geocode the client address
+                coords = geocode_address(
+                    client.get('address', ''),
+                    client.get('city', ''),
+                    client.get('municipality', '')
+                )
+                if coords:
+                    waypoints.append(coords)
+                    waypoint_info.append({
+                        'coords': coords,
+                        'client_name': f"{client.get('firstName', '')} {client.get('lastName', '')}".strip(),
+                        'address': client.get('address', ''),
+                        'is_client': True
+                    })
+    
+    # Get coordinates from manual URLs
     for url in stop_urls:
         coords = extract_coords_from_url(url)
         if coords:
             waypoints.append(coords)
+            waypoint_info.append({
+                'coords': coords,
+                'client_name': None,
+                'address': None,
+                'is_client': False
+            })
     
     if not waypoints:
         return jsonify({"error": "No se encontraron paradas válidas"})
@@ -1030,8 +1581,9 @@ def optimize():
     route = result["routes"][0]
     optimized_order = route.get("optimizedIntermediateWaypointIndex", list(range(len(waypoints))))
     
-    # Reorder waypoints
+    # Reorder waypoints and their info
     ordered_waypoints = [waypoints[i] for i in optimized_order]
+    ordered_info = [waypoint_info[i] for i in optimized_order]
     
     # Get totals
     total_distance = route.get("distanceMeters", 0)
@@ -1045,10 +1597,16 @@ def optimize():
     # Build response
     legs = route.get("legs", [])
     stops_data = []
-    for i, coords in enumerate(ordered_waypoints):
+    for i, (coords, info) in enumerate(zip(ordered_waypoints, ordered_info)):
+        # Use client info if available, otherwise reverse geocode
+        if info.get('is_client') and info.get('client_name'):
+            address_display = f"{info['client_name']} - {info['address']}"
+        else:
+            address_display = reverse_geocode(coords)
+        
         leg_info = {
             "coords": coords,
-            "address": reverse_geocode(coords),
+            "address": address_display,
             "distance": "--",
             "time": "--"
         }
@@ -1085,4 +1643,6 @@ def optimize():
 
 
 if __name__ == '__main__':
+    # Preload Bsale clients in background on startup
+    preload_clients()
     app.run(debug=True, port=5000)
