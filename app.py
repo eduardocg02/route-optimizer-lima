@@ -211,18 +211,18 @@ def format_distance(meters):
     return f"{meters} m"
 
 
-def geocode_address(address: str, city: str = "", municipality: str = "") -> tuple[float, float] | None:
+def geocode_address(address: str, city: str = "", district: str = "") -> tuple[float, float] | None:
     """Convert an address string to coordinates using Google Geocoding API."""
     if not GOOGLE_API_KEY:
         return None
     
-    # Build full address string
+    # Build full address string with district for accuracy (e.g., "San Isidro", "Miraflores")
     full_address = address
-    if municipality:
-        full_address += f", {municipality}"
+    if district:
+        full_address += f", {district}"
     if city:
         full_address += f", {city}"
-    full_address += ", Lima, Peru"
+    full_address += ", Peru"
     
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {
@@ -343,7 +343,7 @@ def fetch_bsale_clients_from_api() -> list[dict]:
                     "company": client.get("company", ""),
                     "address": client.get("address", ""),
                     "city": client.get("city", ""),
-                    "municipality": client.get("municipality", ""),
+                    "district": client.get("district", ""),  # District for better geocoding
                     "code": client.get("code", "")
                 })
             
@@ -1832,11 +1832,11 @@ def optimize():
         for client_id in client_ids:
             client = client_map.get(client_id)
             if client:
-                # Geocode the client address
+                # Geocode the client address (include district for accuracy)
                 coords = geocode_address(
                     client.get('address', ''),
                     client.get('city', ''),
-                    client.get('municipality', '')
+                    client.get('district', '')  # District like "San Isidro", "Miraflores", etc.
                 )
                 if coords:
                     waypoints.append(coords)
