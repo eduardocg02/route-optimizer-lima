@@ -3137,26 +3137,23 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                     
                     // Add phone if available
                     if (stop.phone) {
-                        summary += `📞 ${stop.phone}\\n`;
+                        summary += `${stop.phone}\\n`;
                     }
                     
                     // Use clean_address if available, otherwise fall back to address extraction
                     if (stop.clean_address) {
-                        summary += `📍 ${stop.clean_address}`;
-                        if (stop.district) {
-                            summary += `, ${stop.district}`;
-                        }
-                        summary += '\\n';
+                        summary += `${stop.clean_address}\\n`;
                     } else {
                         // Extract just the address part (after the name and dash)
                         const addressParts = stop.address.split(' - ');
                         if (addressParts.length > 1) {
-                            summary += `📍 ${addressParts.slice(1).join(' - ')}`;
-                            if (stop.district) {
-                                summary += `, ${stop.district}`;
-                            }
-                            summary += '\\n';
+                            summary += `${addressParts.slice(1).join(' - ')}\\n`;
                         }
+                    }
+                    
+                    // District on separate line
+                    if (stop.district) {
+                        summary += `${stop.district}\\n`;
                     }
                     
                     summary += '\\n';
@@ -3164,7 +3161,7 @@ https://maps.app.goo.gl/ghi789..."></textarea>
                 } else {
                     // Manual waypoint
                     summary += `*${stopNumber}.* Parada manual\\n`;
-                    summary += `📍 ${stop.address}\\n\\n`;
+                    summary += `${stop.address}\\n\\n`;
                     stopNumber++;
                 }
             });
