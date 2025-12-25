@@ -45,6 +45,18 @@ CLIENTS_CACHE = {
     "last_updated": None
 }
 
+# Sync progress tracking for Google Sheets sync
+SYNC_STATE = {
+    "syncing": False,
+    "stage": "",  # "fetching_bsale", "comparing", "updating", "done", "error"
+    "progress": 0,
+    "total": 0,
+    "message": "",
+    "new_clients": 0,
+    "updated_clients": 0,
+    "error": None
+}
+
 
 def check_auth(username, password):
     """Check if username/password combination is valid."""
@@ -709,9 +721,48 @@ HTML_TEMPLATE = """
             animation: pulse 1s ease-in-out infinite;
         }
         
+        .cache-status.syncing .status-dot {
+            background: var(--accent-primary);
+            animation: pulse 1s ease-in-out infinite;
+        }
+        
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
+        }
+        
+        /* Sync progress bar */
+        .sync-progress-container {
+            width: 100%;
+            margin-top: 8px;
+            display: none;
+        }
+        
+        .sync-progress-container.active {
+            display: block;
+        }
+        
+        .sync-progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .sync-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 3px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        
+        .sync-progress-text {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-align: center;
         }
         
         /* Form elements */
@@ -2136,6 +2187,12 @@ HTML_TEMPLATE = """
                     </button>
                 </div>
                 <div class="cache-status" id="cache-status"></div>
+                <div class="sync-progress-container" id="sync-progress-container">
+                    <div class="sync-progress-bar">
+                        <div class="sync-progress-fill" id="sync-progress-fill"></div>
+                    </div>
+                    <div class="sync-progress-text" id="sync-progress-text"></div>
+                </div>
                 
                 <div class="input-group">
                     <div class="client-selector">
@@ -2654,6 +2711,8 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             }
         }
         
+        let syncPollingInterval = null;
+        
         async function refreshClients() {
             const refreshBtn = document.getElementById('refresh-clients-btn');
             if (refreshBtn.classList.contains('loading')) return;
@@ -2661,20 +2720,101 @@ https://maps.app.goo.gl/ghi789..."></textarea>
             refreshBtn.classList.add('loading');
             
             try {
-                const response = await fetch('/api/clients/refresh', { 
-                    method: 'POST',
-                    credentials: 'same-origin' 
+                // Use the new sheets sync endpoint
+                const response = await fetch('/api/sheets/sync', { 
+                    method: 'POST'
                 });
                 const data = await response.json();
                 
-                if (data.status === 'started' || data.status === 'already_loading') {
-                    // Start polling for updates
-                    setTimeout(loadClients, 500);
+                if (data.status === 'started' || data.status === 'already_syncing') {
+                    // Start polling for sync status
+                    startSyncPolling();
                 }
             } catch (err) {
-                console.error('Error refreshing clients:', err);
+                console.error('Error starting sync:', err);
                 refreshBtn.classList.remove('loading');
             }
+        }
+        
+        function startSyncPolling() {
+            if (syncPollingInterval) clearInterval(syncPollingInterval);
+            
+            const progressContainer = document.getElementById('sync-progress-container');
+            const progressFill = document.getElementById('sync-progress-fill');
+            const progressText = document.getElementById('sync-progress-text');
+            const statusEl = document.getElementById('cache-status');
+            
+            progressContainer.classList.add('active');
+            
+            syncPollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/sheets/sync/status');
+                    const state = await response.json();
+                    
+                    // Update UI based on sync state
+                    statusEl.className = 'cache-status syncing';
+                    
+                    if (state.stage === 'fetching_bsale') {
+                        statusEl.innerHTML = '<span class="status-dot"></span> Obteniendo clientes de Bsale...';
+                        progressFill.style.width = '10%';
+                        progressText.textContent = state.message;
+                    } else if (state.stage === 'comparing') {
+                        statusEl.innerHTML = '<span class="status-dot"></span> Comparando datos...';
+                        progressFill.style.width = '30%';
+                        progressText.textContent = state.message;
+                    } else if (state.stage === 'updating') {
+                        statusEl.innerHTML = '<span class="status-dot"></span> Actualizando...';
+                        progressFill.style.width = '50%';
+                        progressText.textContent = state.message;
+                    } else if (state.stage === 'geocoding') {
+                        const percent = state.total > 0 ? 50 + Math.round((state.progress / state.total) * 30) : 50;
+                        statusEl.innerHTML = `<span class="status-dot"></span> Geocodificando ${state.progress}/${state.total}...`;
+                        progressFill.style.width = percent + '%';
+                        progressText.textContent = state.message;
+                    } else if (state.stage === 'adding') {
+                        statusEl.innerHTML = '<span class="status-dot"></span> Guardando...';
+                        progressFill.style.width = '90%';
+                        progressText.textContent = state.message;
+                    } else if (state.stage === 'done') {
+                        stopSyncPolling();
+                        progressFill.style.width = '100%';
+                        progressText.textContent = '¡Listo!';
+                        
+                        // Show success message
+                        let msg = '✓ Sincronización completa';
+                        if (state.new_clients > 0) msg += ` • ${state.new_clients} nuevos`;
+                        if (state.updated_clients > 0) msg += ` • ${state.updated_clients} actualizados`;
+                        statusEl.className = 'cache-status';
+                        statusEl.innerHTML = `<span class="status-dot"></span> ${msg}`;
+                        
+                        // Hide progress bar after a moment and reload clients
+                        setTimeout(() => {
+                            progressContainer.classList.remove('active');
+                            loadClients();  // Reload the client list
+                        }, 1500);
+                    } else if (state.stage === 'error') {
+                        stopSyncPolling();
+                        statusEl.className = 'cache-status';
+                        statusEl.innerHTML = `<span class="status-dot" style="background:#ef5350;"></span> Error: ${state.error}`;
+                        progressContainer.classList.remove('active');
+                    }
+                    
+                    if (!state.syncing && state.stage !== 'done') {
+                        stopSyncPolling();
+                    }
+                } catch (err) {
+                    console.error('Sync polling error:', err);
+                }
+            }, 500);
+        }
+        
+        function stopSyncPolling() {
+            if (syncPollingInterval) {
+                clearInterval(syncPollingInterval);
+                syncPollingInterval = null;
+            }
+            const refreshBtn = document.getElementById('refresh-clients-btn');
+            refreshBtn.classList.remove('loading');
         }
         
         // Track highlighted option index for keyboard navigation
@@ -3394,23 +3534,107 @@ def fix_client_address(bsale_id):
 @app.route('/api/sheets/sync', methods=['POST'])
 @requires_auth
 def sync_bsale_to_sheets():
-    """Trigger a sync from Bsale to Google Sheets."""
+    """Trigger a sync from Bsale to Google Sheets with progress tracking."""
+    global SYNC_STATE
+    
+    if SYNC_STATE["syncing"]:
+        return jsonify({"status": "already_syncing", "message": "Ya se está sincronizando"})
+    
     try:
-        from sync_clients import sync_clients_to_sheet
-        import threading
+        def run_sync_with_progress():
+            global SYNC_STATE
+            SYNC_STATE = {
+                "syncing": True,
+                "stage": "fetching_bsale",
+                "progress": 0,
+                "total": 0,
+                "message": "Conectando con Bsale...",
+                "new_clients": 0,
+                "updated_clients": 0,
+                "error": None
+            }
+            
+            try:
+                from sheets import get_all_clients, get_existing_bsale_ids, add_clients, batch_update_client_details
+                from sync_clients import fetch_all_bsale_clients, geocode_address
+                
+                # Step 1: Fetch from Bsale
+                SYNC_STATE["message"] = "Obteniendo clientes de Bsale..."
+                bsale_clients = fetch_all_bsale_clients()
+                
+                if not bsale_clients:
+                    SYNC_STATE["stage"] = "error"
+                    SYNC_STATE["error"] = "No se pudieron obtener clientes de Bsale"
+                    SYNC_STATE["syncing"] = False
+                    return
+                
+                SYNC_STATE["total"] = len(bsale_clients)
+                SYNC_STATE["stage"] = "comparing"
+                SYNC_STATE["message"] = "Comparando con base de datos..."
+                
+                # Step 2: Get existing IDs from sheets
+                existing_ids = get_existing_bsale_ids()
+                
+                # Separate new and existing
+                new_clients = [c for c in bsale_clients if str(c.get("bsale_id")) not in existing_ids]
+                existing_clients = [c for c in bsale_clients if str(c.get("bsale_id")) in existing_ids]
+                
+                SYNC_STATE["new_clients"] = len(new_clients)
+                
+                # Step 3: Update existing clients (if any changed)
+                if existing_clients:
+                    SYNC_STATE["stage"] = "updating"
+                    SYNC_STATE["message"] = f"Verificando cambios en {len(existing_clients)} clientes..."
+                    updated = batch_update_client_details(existing_clients)
+                    SYNC_STATE["updated_clients"] = updated
+                
+                # Step 4: Add new clients with geocoding
+                if new_clients:
+                    SYNC_STATE["stage"] = "geocoding"
+                    SYNC_STATE["message"] = f"Geocodificando {len(new_clients)} clientes nuevos..."
+                    
+                    for i, client in enumerate(new_clients):
+                        address = client.get("address", "")
+                        city = client.get("city", "")
+                        district = client.get("district", "")
+                        
+                        if address:
+                            maps_link = geocode_address(address, city, district)
+                            client["maps_link"] = maps_link
+                        else:
+                            client["maps_link"] = ""
+                        
+                        SYNC_STATE["progress"] = i + 1
+                        SYNC_STATE["message"] = f"Geocodificando {i + 1}/{len(new_clients)}..."
+                        time.sleep(0.05)  # Rate limiting
+                    
+                    SYNC_STATE["stage"] = "adding"
+                    SYNC_STATE["message"] = "Agregando clientes nuevos..."
+                    add_clients(new_clients)
+                
+                SYNC_STATE["stage"] = "done"
+                SYNC_STATE["message"] = "¡Sincronización completa!"
+                SYNC_STATE["syncing"] = False
+                
+            except Exception as e:
+                SYNC_STATE["stage"] = "error"
+                SYNC_STATE["error"] = str(e)
+                SYNC_STATE["syncing"] = False
         
-        def run_sync():
-            sync_clients_to_sheet(new_only=True)
-        
-        thread = threading.Thread(target=run_sync)
+        thread = threading.Thread(target=run_sync_with_progress)
         thread.daemon = True
         thread.start()
         
-        return jsonify({"status": "started", "message": "Sincronización iniciada en segundo plano"})
-    except ImportError as e:
-        return jsonify({"error": f"Module not available: {e}"}), 500
+        return jsonify({"status": "started", "message": "Sincronización iniciada"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sheets/sync/status')
+@requires_auth
+def get_sync_status():
+    """Get current sync status."""
+    return jsonify(SYNC_STATE)
 
 
 @app.route('/optimize', methods=['POST'])
